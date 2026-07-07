@@ -1,0 +1,53 @@
+project_name: sjtu_material_ai
+seed: 42
+
+paths:
+  raw_normal_zip: /home/luxliang/sjtu_material_ai/data/raw/正常材料包.zip
+  raw_fake_zip: /home/luxliang/sjtu_material_ai/data/raw/虚假材料包.zip
+  workspace: /home/luxliang/sjtu_material_ai
+  prepared_dir: /home/luxliang/sjtu_material_ai/data/prepared
+  render_dir: /home/luxliang/sjtu_material_ai/outputs/renders
+  feature_dir: /home/luxliang/sjtu_material_ai/outputs/features
+  model_dir: /home/luxliang/sjtu_material_ai/outputs/models
+  report_dir: /home/luxliang/sjtu_material_ai/outputs/reports
+
+labels:
+  normal_root_name: 正常材料包
+  fake_root_name: 虚假材料包
+  doc_type_keywords:
+    credit_report: [征信, 信用报告]
+    invoice: [发票]
+    contract: [合同, 购销]
+    settlement_statement: [结算单]
+    receipt: [回单]
+    bank_page: [网银]
+
+pdf_features:
+  large_image_pixels: 1000000
+  small_overlay_pixels: 300000
+  risk_rules:
+    smask_count:
+      threshold: 1
+      score: 25
+    font_warning_count:
+      threshold: 1
+      score: 20
+    local_overlay_with_full_page:
+      min_large_images: 1
+      min_small_overlays: 3
+      score: 15
+
+render:
+  dpi: 144
+  max_pages_per_pdf: 4
+
+training:
+  task: doc_type_classification
+  image_size: 224
+  batch_size: 64
+  epochs: 20
+  learning_rate: 0.0003
+  num_workers: 8
+  val_ratio: 0.2
+  gpu_ids: "0,1,2,3"
+  mixed_precision: true

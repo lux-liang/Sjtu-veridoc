@@ -1,0 +1,33 @@
+# 数据与产物一律不入库（含真实个人金融隐私 + 大体量二进制）
+data/
+outputs/
+renders/
+models/
+*.pdf
+*.zip
+*.png
+*.jpg
+*.jpeg
+
+# 备份
+.backup*/
+*_prev.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# 大特征表 / 中间文件
+*.parquet
+outputs/features/
+data/hard_negatives/
+data/semantic_bench/
+
+# 环境 / 密钥（切勿入库）
+.env
+*.key
+credentials*
