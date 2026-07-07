@@ -283,6 +283,29 @@ def load_marker_flags(path: str) -> dict[str, dict]:
     return {r["document_id"]: r for r in read_csv(Path(path))}
 
 
+def apply_qwen_evidence(combined: int, confidence: str, all_reasons: list[str], qwen: dict) -> tuple[int, str, list[str]]:
+    """Fold Qwen-VL visual-forensics verdict in as a corroborating evidence channel.
+
+    Catches GROSS/visible tampering (misaligned pasted seal, mismatched-font
+    edited number, splice) that pixel statistics miss. Flagged 'qwen:' so it is
+    separable/auditable. NOTE: requires sending the page image to an external
+    API -- only run on data cleared for external transfer (see docs).
+    """
+    q = as_int(qwen.get("qwen_fx_risk_score"))
+    tags = [t for t in (qwen.get("qwen_fx_reason_tags") or "").split("|") if t]
+    if q >= 60:
+        combined = max(combined, min(90, q))
+        all_reasons.append("qwen:visual_tamper_high")
+        confidence = "high"
+    elif q >= 35:
+        combined = max(combined, 40)
+        all_reasons.append("qwen:visual_tamper_medium")
+        confidence = "medium" if confidence in {"none", "low"} else confidence
+    for t in tags[:5]:
+        all_reasons.append(f"qwen:{t}")
+    return min(100, combined), confidence, list(dict.fromkeys(all_reasons))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf-csv", required=True)
@@ -293,6 +316,8 @@ def main() -> None:
                         help="text_marker_flags.csv from extract_text_markers.py (v3 only)")
     parser.add_argument("--scoring-version", choices=["v2", "v3"], default="v3",
                         help="v2=legacy evidence-calibrated (kept for rollback), v3=sign-corrected (default)")
+    parser.add_argument("--qwen-csv", default="",
+                        help="optional Qwen-VL visual-forensics output (analyze_qwen_forensics.py); external-API, off by default")
     parser.add_argument("--out-csv", required=True)
     parser.add_argument("--out-json", required=True)
     args = parser.parse_args()
@@ -302,6 +327,7 @@ def main() -> None:
     text_rows = {row["document_id"]: row for row in read_csv(Path(args.text_csv))}
     ocr_rows = {row["document_id"]: row for row in read_csv(Path(args.ocr_csv))} if args.ocr_csv else {}
     marker_rows = load_marker_flags(args.marker_csv) if args.scoring_version == "v3" else {}
+    qwen_rows = {r["document_id"]: r for r in read_csv(Path(args.qwen_csv))} if args.qwen_csv else {}
     ids = sorted(set(pdf_rows) | set(visual_rows) | set(text_rows) | set(ocr_rows))
     records = []
     for doc_id in ids:
@@ -322,6 +348,10 @@ def main() -> None:
             combined, risk_confidence, all_reasons = score_v3(all_reasons, marker_flag, marker.get("marker_tokens", ""))
             if ocr:
                 combined, risk_confidence, all_reasons = apply_ocr_evidence(combined, risk_confidence, all_reasons, ocr)
+            if qwen_rows:
+                qwen = qwen_rows.get(doc_id, {})
+                if qwen:
+                    combined, risk_confidence, all_reasons = apply_qwen_evidence(combined, risk_confidence, all_reasons, qwen)
         else:
             combined, risk_confidence, all_reasons = score_v2(pdf, object_score, visual_score, business_score, all_reasons)
             if ocr:
