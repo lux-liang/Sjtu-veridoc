@@ -26,6 +26,64 @@ SEAL_CLASS_DETAIL_JS_MARKER = "VERIDOC_SEAL_CLASS_DETAIL_FIELDS_20260718"
 OCR_REASON_JS_MARKER = "VERIDOC_OCR_REASON_LABELS_20260717"
 CSS_MARKER = "VERIDOC_HOMEPAGE_ENHANCEMENT_20260717"
 DUAL_EVAL_CSS_MARKER = "VERIDOC_DUAL_SCOPE_CSS_20260718"
+VISUAL_REFRESH_MARKER = 'data-veridoc-enhancement="visual-refresh-20260718-v2"'
+VISUAL_REFRESH_JS_MARKER = "VERIDOC_VISUAL_REFRESH_20260718_V2"
+VISUAL_REFRESH_CSS_MARKER = "VERIDOC_VISUAL_REFRESH_CSS_20260718_V2"
+
+
+COMMAND_HERO_SECTION = r'''
+        <section class="command-hero" data-veridoc-enhancement="visual-refresh-20260718-v2">
+          <div class="command-hero-copy">
+            <div class="hero-kicker"><span class="live-pulse"></span> REAL-TIME DOCUMENT FORENSICS</div>
+            <h2>让材料核验从“一个分数”，升级为<br><em>可解释、可复核的证据链。</em></h2>
+            <p>融合 PDF 对象结构、图像取证、印章语义、OCR 与业务勾稽，快速定位可疑材料，并保留每一条判定依据。</p>
+            <div class="hero-actions">
+              <button class="hero-button primary" type="button" data-jump-view="documents">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/><path d="m17 16 3 3-3 3"/></svg>
+                进入样本核查
+              </button>
+              <button class="hero-button" type="button" data-jump-view="upload">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                上传新材料
+              </button>
+              <button class="hero-link" type="button" data-jump-view="principles">查看检测原理 <span>↗</span></button>
+            </div>
+            <div class="hero-capabilities" aria-label="检测能力">
+              <span>PDF 篡改</span><span>PS 痕迹</span><span>印章核验</span><span>征信报告</span><span>相似图片</span>
+            </div>
+          </div>
+
+          <aside class="hero-console" aria-label="当前检测状态">
+            <div class="console-head">
+              <div><span class="console-label">SYSTEM SNAPSHOT</span><strong>核验引擎状态</strong></div>
+              <span class="online-badge"><i></i> 服务在线</span>
+            </div>
+            <div class="console-focus">
+              <div>
+                <span>真实挑战口径 F1</span>
+                <strong id="hero-audit-f1">—</strong>
+                <small>去除显式 marker 证据后的同集审计</small>
+              </div>
+              <div class="console-ring" aria-hidden="true"><span id="hero-audit-recall">—</span><small>Recall</small></div>
+            </div>
+            <div class="console-stats">
+              <div><span>已核验材料</span><strong id="hero-sample-count">—</strong></div>
+              <div><span>中高风险</span><strong id="hero-risk-count">—</strong></div>
+            </div>
+            <div class="pipeline-status">
+              <span><i class="done"></i>结构解析</span><b></b>
+              <span><i class="done"></i>多模态取证</span><b></b>
+              <span><i class="active"></i>证据融合</span>
+            </div>
+            <div class="console-foot"><span>数据与接口已连接</span><time id="hero-last-refresh">等待刷新</time></div>
+          </aside>
+        </section>
+
+        <div class="overview-heading">
+          <div><span>OVERVIEW</span><h2>核验数据概览</h2></div>
+          <p>点击指标卡可直接筛选对应样本</p>
+        </div>
+'''
 
 
 EVALUATION_SECTION = r'''
@@ -255,6 +313,51 @@ async function renderLabeledEvaluation() {
 '''
 
 
+VISUAL_REFRESH_JS = r'''
+// VERIDOC_VISUAL_REFRESH_20260718_V2
+function setText(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) node.textContent = value;
+}
+
+function renderCommandHero(data) {
+  const totals = data?.totals || {};
+  const evaluation = data?.labeled_evaluation || {};
+  const audit = evaluation.marker_free_audit || {};
+  setText("#hero-audit-f1", audit.f1 == null ? "待重算" : fmtPct(audit.f1));
+  setText("#hero-audit-recall", audit.recall == null ? "—" : fmtPct(audit.recall));
+  setText("#hero-sample-count", fmtNum(totals.pdf_documents || evaluation.sample_count || 0));
+  setText("#hero-risk-count", fmtNum(totals.high_or_medium_risk || 0));
+  setText("#hero-last-refresh", `更新于 ${new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date())}`);
+}
+
+function decorateMetricCards() {
+  const details = [
+    ["已进入统一核验底盘", "数据底盘"],
+    ["当前标签为正常", "基准样本"],
+    ["当前标签为疑似虚假", "重点复核"],
+    ["由线上入口提交", "实时接入"],
+    ["等待人工确认标签", "标注队列"],
+    ["综合风险分 ≥ 25", "风险队列"],
+  ];
+  document.querySelectorAll("#metrics .metric").forEach((card, index) => {
+    if (card.querySelector(".metric-context")) return;
+    const [hint, badge] = details[index] || ["核验指标", "实时数据"];
+    card.insertAdjacentHTML("beforeend", `<div class="metric-context"><small>${hint}</small><span>${badge}</span></div>`);
+  });
+}
+
+document.addEventListener("click", (event) => {
+  const control = event.target.closest("[data-jump-view]");
+  if (!control) return;
+  const view = control.dataset.jumpView;
+  switchView(view);
+  if (view === "documents") renderDocuments();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+'''
+
+
 SEAL_REASON_JS = r'''
   // VERIDOC_COLOR_AGNOSTIC_SEAL_REASONS_20260717
   "visual:seal_color_agnostic_candidate": ["seal", "颜色无关印章候选（已定位）"],
@@ -408,6 +511,262 @@ DUAL_EVAL_CSS = r'''
 '''
 
 
+VISUAL_REFRESH_CSS = r'''
+
+/* VERIDOC_VISUAL_REFRESH_CSS_20260718_V2 */
+:root {
+  --hero-ink: #0b1020;
+  --hero-blue: #6673ff;
+  --hero-cyan: #29c7e8;
+  --surface-glass: rgba(255, 255, 255, .72);
+}
+
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .24;
+  background-image: linear-gradient(rgba(99,102,241,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,.055) 1px, transparent 1px);
+  background-size: 48px 48px; mask-image: linear-gradient(to bottom, #000, transparent 72%);
+}
+
+.topbar {
+  min-height: 76px; padding: 13px max(24px, calc((100vw - 1520px) / 2)); gap: 16px;
+  border-bottom-color: rgba(214,221,235,.78); box-shadow: 0 8px 30px -24px rgba(15,23,42,.42);
+}
+.topbar h1 { font-size: 18px; letter-spacing: -.015em; }
+.brand-mark { width: 44px; height: 44px; border-radius: 14px; position: relative; }
+.brand-mark::after { content: ""; position: absolute; inset: 5px; border: 1px solid rgba(255,255,255,.28); border-radius: 10px; }
+.tabs { gap: 3px; padding: 4px; border-radius: 14px; }
+.tab { display: inline-flex; align-items: center; gap: 7px; border-radius: 10px; padding: 9px 13px; }
+.tab svg { width: 16px; height: 16px; }
+.tab.active { box-shadow: 0 8px 20px -10px rgba(79,70,229,.8); }
+.theme-toggle, .status { box-shadow: none; }
+.status { padding: 9px 12px; font-size: 12px; }
+
+main { margin-top: 22px; }
+.panel { border-color: rgba(222,227,239,.9); box-shadow: 0 12px 34px -28px rgba(15,23,42,.5), 0 1px 2px rgba(15,23,42,.03); }
+.panel-head { margin-bottom: 18px; }
+.panel-head h2 { font-size: 17px; }
+.panel-head h2::before { content: ""; width: 4px; height: 17px; border-radius: 9px; background: linear-gradient(180deg, var(--blue-2), var(--sky)); }
+
+/* 首屏核验指挥台 */
+.command-hero {
+  position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1.22fr) minmax(390px, .78fr);
+  min-height: 390px; margin-bottom: 26px; border: 1px solid rgba(109,120,255,.22); border-radius: 26px;
+  background: linear-gradient(120deg, #0c1328 0%, #111b38 48%, #142444 100%); color: #f8fbff;
+  box-shadow: 0 30px 70px -38px rgba(30,41,100,.72); animation: heroReveal .58s cubic-bezier(.2,.7,.2,1) both;
+}
+.command-hero::before { content: ""; position: absolute; width: 520px; height: 520px; top: -290px; left: 36%; border-radius: 50%; background: radial-gradient(circle, rgba(98,111,255,.35), transparent 67%); z-index: -1; }
+.command-hero::after { content: ""; position: absolute; width: 380px; height: 380px; right: -140px; bottom: -235px; border-radius: 50%; background: radial-gradient(circle, rgba(41,199,232,.25), transparent 68%); z-index: -1; }
+.command-hero-copy { position: relative; padding: 48px 48px 40px; }
+.command-hero-copy::after { content: ""; position: absolute; right: 6%; top: 16%; width: 150px; height: 150px; opacity: .1; border: 1px solid #fff; border-radius: 34px; transform: rotate(25deg); }
+.hero-kicker { display: flex; align-items: center; gap: 9px; color: #aab7d8; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+.live-pulse { width: 8px; height: 8px; border-radius: 50%; background: #44dfb1; box-shadow: 0 0 0 5px rgba(68,223,177,.12); animation: livePulse 2s ease-in-out infinite; }
+.command-hero h2 { position: relative; z-index: 1; max-width: 780px; margin-top: 20px; font-size: clamp(30px, 3vw, 48px); line-height: 1.17; font-weight: 850; letter-spacing: -.045em; }
+.command-hero h2 em { color: #9ea8ff; font-style: normal; text-shadow: 0 0 32px rgba(126,137,255,.22); }
+.command-hero-copy > p { position: relative; z-index: 1; max-width: 680px; margin-top: 18px; color: #aebad3; font-size: 14px; line-height: 1.8; }
+.hero-actions { position: relative; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 27px; }
+.hero-button { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 17px; border: 1px solid rgba(190,201,229,.2); border-radius: 11px; color: #e8eefb; background: rgba(255,255,255,.075); transition: transform .18s, background .18s, border-color .18s; }
+.hero-button svg { width: 17px; height: 17px; }
+.hero-button:hover { transform: translateY(-2px); background: rgba(255,255,255,.12); border-color: rgba(190,201,229,.35); }
+.hero-button.primary { border-color: transparent; color: #fff; background: linear-gradient(135deg, #5968f7, #7b68ee 62%, #32b9df); box-shadow: 0 12px 30px -14px rgba(92,108,255,.85); }
+.hero-link { border: 0; padding: 10px 8px; color: #9eabd0; background: transparent; font-size: 13px; }
+.hero-link:hover { color: #fff; }
+.hero-capabilities { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 27px; }
+.hero-capabilities span { padding: 5px 9px; border: 1px solid rgba(180,194,226,.14); border-radius: 7px; color: #8998bb; background: rgba(255,255,255,.035); font-size: 10.5px; }
+
+.hero-console { align-self: stretch; min-width: 0; margin: 24px 24px 24px 0; padding: 22px; border: 1px solid rgba(190,202,230,.16); border-radius: 20px; background: rgba(7,13,29,.54); box-shadow: inset 0 1px rgba(255,255,255,.04); backdrop-filter: blur(18px); }
+.console-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid rgba(180,194,226,.12); }
+.console-head > div { display: grid; gap: 4px; }
+.console-label { color: #6f82ac; font-size: 9.5px; font-weight: 800; letter-spacing: .14em; }
+.console-head strong { font-size: 15px; }
+.online-badge { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; color: #80e7c7; background: rgba(47,201,157,.1); font-size: 10.5px; font-weight: 700; }
+.online-badge i { width: 6px; height: 6px; border-radius: 50%; background: #44dfb1; box-shadow: 0 0 10px #44dfb1; }
+.console-focus { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; padding: 22px 2px 18px; }
+.console-focus > div:first-child { display: grid; gap: 5px; }
+.console-focus span { color: #8998bb; font-size: 11px; }
+.console-focus strong { font-size: 38px; line-height: 1; letter-spacing: -.04em; color: #f5b75e; font-variant-numeric: tabular-nums; }
+.console-focus small { color: #687b9f; font-size: 9.5px; line-height: 1.45; }
+.console-ring { width: 76px; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: radial-gradient(circle at center, #0c1730 52%, transparent 54%), conic-gradient(#f3aa46 0 19%, rgba(255,255,255,.08) 19% 100%); }
+.console-ring span { color: #fff; font-size: 15px; font-weight: 800; }
+.console-ring small { color: #7586a8; font-size: 9px; }
+.console-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.console-stats > div { display: grid; gap: 5px; padding: 12px; border: 1px solid rgba(180,194,226,.1); border-radius: 10px; background: rgba(255,255,255,.035); }
+.console-stats span { color: #7789ad; font-size: 10px; }
+.console-stats strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.pipeline-status { display: grid; grid-template-columns: auto 1fr auto 1fr auto; align-items: center; gap: 6px; margin: 18px 0 14px; }
+.pipeline-status span { display: inline-flex; align-items: center; gap: 5px; color: #8998bb; font-size: 9.5px; white-space: nowrap; }
+.pipeline-status i { width: 6px; height: 6px; border-radius: 50%; }
+.pipeline-status i.done { background: #44dfb1; }.pipeline-status i.active { background: #6f7dff; box-shadow: 0 0 0 4px rgba(111,125,255,.12); }
+.pipeline-status b { height: 1px; background: linear-gradient(90deg, rgba(68,223,177,.55), rgba(111,125,255,.18)); }
+.console-foot { display: flex; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(180,194,226,.1); color: #617295; font-size: 9.5px; }
+
+.overview-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 0 2px 13px; }
+.overview-heading > div { display: grid; gap: 3px; }
+.overview-heading span { color: var(--blue); font-size: 9px; font-weight: 850; letter-spacing: .16em; }
+.overview-heading h2 { font-size: 20px; letter-spacing: -.02em; }
+.overview-heading p { color: var(--muted); font-size: 11.5px; }
+
+/* 指标卡重新分层 */
+.metrics { gap: 12px; margin-bottom: 22px; }
+.metric { min-height: 138px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto 1fr; align-items: start; gap: 2px 13px; padding: 18px; border-radius: 16px; background: linear-gradient(145deg, var(--panel), color-mix(in srgb, var(--blue) 2.5%, var(--panel))); }
+.metric::after { content: ""; position: absolute; width: 82px; height: 82px; right: -37px; top: -37px; border-radius: 50%; background: color-mix(in srgb, currentColor 7%, transparent); }
+.metric::before { inset: auto 16px 0; width: auto; height: 3px; border-radius: 3px 3px 0 0; opacity: .45; }
+.metric.clickable:hover::before { opacity: 1; }
+.metric .m-ico { grid-row: 1 / span 2; width: 42px; height: 42px; border-radius: 12px; box-shadow: 0 9px 18px -10px rgba(15,23,42,.65); }
+.metric .label { align-self: end; font-size: 11.5px; }
+.metric .value { font-size: 30px; }
+.metric-context { grid-column: 1 / -1; align-self: end; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 13px; margin-top: 9px; border-top: 1px solid var(--line-2); }
+.metric-context small { overflow: hidden; color: var(--faint); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.metric-context span { padding: 3px 6px; border-radius: 5px; color: var(--muted); background: color-mix(in srgb, var(--blue) 6%, transparent); font-size: 8.5px; font-weight: 750; white-space: nowrap; }
+
+/* 评估区作为首页核心信息 */
+.eval-overview { margin-bottom: 18px; padding: 24px; border-color: rgba(99,102,241,.22); }
+.eval-overview::after { content: "MODEL EVALUATION"; position: absolute; right: 24px; bottom: 12px; color: color-mix(in srgb, var(--blue) 7%, transparent); font-size: 34px; font-weight: 900; letter-spacing: -.04em; pointer-events: none; }
+.eval-compare { position: relative; z-index: 1; gap: 12px; }
+.eval-compare-row { min-height: 120px; border-left-width: 0; border-radius: 15px; box-shadow: none; }
+.eval-compare-row.tone-full { border-color: color-mix(in srgb, var(--blue) 22%, var(--line-2)); }
+.eval-compare-row.tone-audit { position: relative; border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--line-2)); box-shadow: 0 14px 30px -27px rgba(217,119,6,.7); }
+.eval-compare-row.tone-audit::before { content: "推荐关注"; position: absolute; right: 12px; top: 9px; padding: 3px 7px; border-radius: 5px; color: #b45309; background: #fff7ed; font-size: 8.5px; font-weight: 800; z-index: 2; }
+.eval-compare-scope { padding: 18px; }
+.eval-compare-scope strong { font-size: 15px; }
+.eval-compare-cell { display: flex; flex-direction: column; justify-content: center; }
+.eval-compare-cell strong { font-size: 30px; }
+.eval-detail-grid { gap: 12px; }
+.eval-matrix { padding: 16px; border-radius: 14px; }
+.matrix-cell { padding: 12px 13px; }
+.eval-disclaimer { position: relative; z-index: 1; border-style: dashed; }
+
+/* 内容面板、图表与表格 */
+.grid.two { gap: 14px; margin-bottom: 14px; }
+.bars { gap: 7px; }
+.bar-row { padding: 7px 8px; }
+.bar-row.interactive:hover { transform: translateX(2px); }
+.track { height: 8px; }
+.reason { min-height: 43px; border-color: var(--line-2); }
+.reason::before { content: ""; width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 10%, transparent); }
+.reason span { margin-right: auto; }
+
+#view-documents > .panel, #view-upload .panel, #view-principles > .panel, #view-principles > article { border-radius: 18px; }
+.filters { padding: 7px; border: 1px solid var(--line-2); border-radius: 13px; background: color-mix(in srgb, var(--blue) 2%, var(--panel)); }
+.filters input, .filters select { min-height: 39px; border-color: transparent; box-shadow: none; }
+.filters input { min-width: 310px; }
+.table-wrap { max-height: calc(100vh - 205px); border-radius: 13px; }
+thead th { top: 0; padding-top: 14px; padding-bottom: 14px; backdrop-filter: blur(10px); }
+tbody tr:nth-child(even) { background: color-mix(in srgb, var(--blue) 1.8%, transparent); }
+tbody tr:hover { background: color-mix(in srgb, var(--blue) 6%, transparent); }
+tbody td:first-child { max-width: 230px; font-weight: 650; word-break: break-word; }
+.badge { border: 1px solid transparent; }
+.pdf-link { display: inline-flex; align-items: center; gap: 4px; }
+.pdf-link:not(.disabled)::before { content: "◉"; font-size: 8px; }
+
+.drawer::before { background: rgba(5,10,22,.55); backdrop-filter: blur(4px); }
+.drawer-card { width: min(650px, 100%); padding: 30px 32px 50px; border-left: 1px solid var(--line); }
+#detail-title { padding-bottom: 16px; border-bottom: 1px solid var(--line-2); font-size: 20px; }
+.score-hero { border-radius: 15px; }
+.ev-section { margin-top: 20px; }
+.detail-grid { gap: 8px; }
+.detail-grid > div { min-height: 66px; border-color: var(--line-2); background: color-mix(in srgb, var(--blue) 1.6%, var(--panel)); }
+
+.upload-box { gap: 14px; }
+.drop-zone { min-height: 285px; border-radius: 17px; background: linear-gradient(145deg, color-mix(in srgb, var(--blue) 3%, var(--panel)), var(--panel)); }
+#upload-button { min-height: 46px; border-radius: 11px; box-shadow: 0 12px 24px -15px rgba(79,70,229,.65); }
+.pr-intro { overflow: hidden; background: linear-gradient(135deg, var(--panel), color-mix(in srgb, var(--blue) 5%, var(--panel))); }
+.business-card { transition: transform .2s, box-shadow .2s, border-color .2s; }
+.business-card:hover { transform: translateY(-3px); box-shadow: 0 18px 38px -30px color-mix(in srgb, var(--biz-color) 60%, #000); border-color: color-mix(in srgb, var(--biz-color) 35%, var(--line)); }
+.biz-no { border-radius: 12px; }
+.biz-type-grid > div { transition: transform .18s, border-color .18s; }
+.biz-type-grid > div:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--biz-color) 30%, var(--line-2)); }
+
+@keyframes heroReveal { from { opacity: 0; transform: translateY(12px) scale(.995); } to { opacity: 1; transform: none; } }
+@keyframes livePulse { 50% { box-shadow: 0 0 0 9px rgba(68,223,177,0); } }
+
+@media (max-width: 1220px) {
+  .command-hero { grid-template-columns: minmax(0, 1fr) 390px; }
+  .command-hero-copy { padding: 42px 36px 36px; }
+  .metrics { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 960px) {
+  .topbar { grid-template-columns: 1fr auto auto; }
+  .tabs { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .command-hero { grid-template-columns: 1fr; }
+  .hero-console { margin: 0 24px 24px; }
+  .eval-compare { overflow: visible; }
+  .eval-compare-row { min-width: 0; grid-template-columns: minmax(190px, 1fr) repeat(4, minmax(105px, .8fr)); }
+  .eval-compare-scope, .eval-compare-cell { padding: 13px 11px; }
+}
+@media (max-width: 720px) {
+  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 12px 14px 10px; }
+  .topbar h1 { max-width: 220px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .eyebrow, .status { display: none; }
+  .theme-toggle { grid-column: 2; grid-row: 1; }
+  .tabs { grid-column: 1 / -1; grid-row: 2; width: 100%; justify-content: flex-start; overflow-x: auto; border: 0; border-radius: 10px; background: transparent; box-shadow: none; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; padding: 8px 12px; }
+  main { width: calc(100% - 22px); margin-top: 12px; }
+  .command-hero { min-height: 0; border-radius: 20px; }
+  .command-hero-copy { padding: 30px 22px 26px; }
+  .command-hero h2 { margin-top: 16px; font-size: 30px; }
+  .command-hero-copy > p { font-size: 13px; }
+  .hero-actions { align-items: stretch; }
+  .hero-button { justify-content: center; flex: 1 1 150px; }
+  .hero-link { width: 100%; text-align: left; }
+  .hero-capabilities { margin-top: 20px; }
+  .hero-console { margin: 0 12px 12px; padding: 17px; border-radius: 15px; }
+  .console-focus strong { font-size: 32px; }
+  .pipeline-status { overflow-x: auto; }
+  .overview-heading { align-items: flex-start; }
+  .overview-heading p { display: none; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .metric { min-height: 128px; padding: 14px; }
+  .metric .m-ico { width: 36px; height: 36px; }
+  .metric .value { font-size: 25px; }
+  .metric-context { align-items: flex-start; }
+  .metric-context small { white-space: normal; }
+  .metric-context span { display: none; }
+  .eval-overview { padding: 17px; }
+  .eval-overview .panel-head { align-items: flex-start; }
+  .eval-scope { display: none; }
+  .eval-compare-row { grid-template-columns: repeat(2, 1fr); border-radius: 13px; overflow: visible; }
+  .eval-compare-scope { grid-column: 1 / -1; min-height: 80px; border-radius: 12px 12px 0 0; }
+  .eval-compare-cell { min-height: 90px; border-top: 1px solid var(--line-2); border-left: 0; }
+  .eval-compare-cell:nth-child(even) { border-right: 1px solid var(--line-2); }
+  .eval-compare-cell strong { font-size: 26px; }
+  .eval-detail-grid { grid-template-columns: 1fr; }
+  .eval-overview::after { display: none; }
+  .panel { padding: 16px; }
+  .panel-head { align-items: flex-start; }
+  .filters { width: 100%; }
+  .filters input, .filters select { flex: 1 1 140px; min-width: 0; width: auto; }
+  .table-wrap { max-height: none; }
+  .drawer-card { padding: 22px 18px 40px; }
+  .business-card { padding: 15px; }
+}
+@media (max-width: 430px) {
+  .brand-mark { width: 38px; height: 38px; }
+  .brand-mark svg { width: 21px; height: 21px; }
+  .command-hero h2 { font-size: 27px; }
+  .console-ring { width: 68px; height: 68px; }
+  .console-stats { grid-template-columns: 1fr 1fr; }
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .metric { min-height: 120px; }
+  .metric-context { padding-top: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+:root[data-theme="dark"] { --surface-glass: rgba(18,26,43,.72); }
+:root[data-theme="dark"] body::before { opacity: .15; }
+:root[data-theme="dark"] .panel { border-color: rgba(39,52,78,.9); }
+:root[data-theme="dark"] .metric { background: linear-gradient(145deg, var(--panel), color-mix(in srgb, var(--blue) 3%, var(--panel))); }
+:root[data-theme="dark"] .metric-context span { background: rgba(129,140,248,.1); }
+:root[data-theme="dark"] .eval-compare-row.tone-audit::before { color: #fbbf24; background: rgba(217,119,6,.17); }
+:root[data-theme="dark"] .filters { background: rgba(129,140,248,.035); }
+:root[data-theme="dark"] tbody tr:nth-child(even) { background: rgba(129,140,248,.025); }
+:root[data-theme="dark"] .detail-grid > div { background: rgba(129,140,248,.025); }
+'''
+
+
 def _insert_after(text: str, anchor: str, addition: str, label: str) -> str:
     if anchor not in text:
         raise ValueError(f"cannot find {label} anchor")
@@ -421,6 +780,13 @@ def _insert_before(text: str, anchor: str, addition: str, label: str) -> str:
 
 
 def patch_index(text: str) -> str:
+    if VISUAL_REFRESH_MARKER not in text:
+        text = _insert_before(
+            text,
+            '        <section class="metrics" id="metrics"></section>',
+            COMMAND_HERO_SECTION,
+            "overview command hero",
+        )
     if EVAL_MARKER not in text:
         text = _insert_after(
             text,
@@ -443,6 +809,29 @@ def patch_index(text: str) -> str:
         1,
     )
     text = text.replace('<span class="eval-scope">当前标签集</span>', '<span class="eval-scope">同一标签集 · 两种评分口径</span>', 1)
+    text = text.replace(
+        '<button class="tab active" data-view="overview">总览</button>',
+        '<button class="tab active" data-view="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/></svg>总览</button>',
+        1,
+    )
+    text = text.replace(
+        '<button class="tab" data-view="documents">样本核查</button>',
+        '<button class="tab" data-view="documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/><path d="m17 16 3 3-3 3"/></svg>样本核查</button>',
+        1,
+    )
+    text = text.replace(
+        '<button class="tab" data-view="upload">上传检测</button>',
+        '<button class="tab" data-view="upload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>上传检测</button>',
+        1,
+    )
+    text = text.replace(
+        '<button class="tab" data-view="principles">检测原理</button>',
+        '<button class="tab" data-view="principles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4v15.5M6.5 4H20v13H6.5A2.5 2.5 0 0 0 4 19.5"/></svg>检测原理</button>',
+        1,
+    )
+    text = text.replace('href="/styles.css"', 'href="/styles.css?v=20260718-v2"', 1)
+    text = text.replace('src="/app.js"', 'src="/app.js?v=20260718-v2"', 1)
+    text = text.replace('<span>0.0.0.0:3002</span>', '<span>生产环境 · 引擎在线</span>', 1)
     return text
 
 
@@ -453,6 +842,8 @@ def patch_javascript(text: str) -> str:
         text = text[:start] + EVALUATION_JS + "\n" + text[end:]
     elif JS_MARKER not in text:
         text = _insert_before(text, "const RISK_BANDS = [", EVALUATION_JS, "risk bands")
+    if VISUAL_REFRESH_JS_MARKER not in text:
+        text = _insert_before(text, "const RISK_BANDS = [", VISUAL_REFRESH_JS, "risk bands for visual refresh")
     if SEAL_REASON_JS_MARKER not in text:
         text = _insert_after(
             text,
@@ -492,6 +883,10 @@ def patch_javascript(text: str) -> str:
     if call not in text:
         anchor = "  renderRiskDist(state.dashboard);\n"
         text = _insert_after(text, anchor, call, "dashboard render")
+    visual_calls = "  renderCommandHero(state.dashboard);\n  decorateMetricCards();\n"
+    if visual_calls not in text:
+        anchor = "  renderRiskDist(state.dashboard);\n"
+        text = _insert_after(text, anchor, visual_calls, "dashboard visual refresh")
     return text
 
 
@@ -500,6 +895,8 @@ def patch_css(text: str) -> str:
         text = text.rstrip() + ENHANCEMENT_CSS + "\n"
     if DUAL_EVAL_CSS_MARKER not in text:
         text = text.rstrip() + DUAL_EVAL_CSS + "\n"
+    if VISUAL_REFRESH_CSS_MARKER not in text:
+        text = text.rstrip() + VISUAL_REFRESH_CSS + "\n"
     return text
 
 

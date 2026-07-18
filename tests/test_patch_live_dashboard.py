@@ -8,6 +8,9 @@ from scripts.patch_live_dashboard import (
     DUAL_EVAL_JS_MARKER,
     EVAL_MARKER,
     SEAL_CLASS_DETAIL_JS_MARKER,
+    VISUAL_REFRESH_CSS_MARKER,
+    VISUAL_REFRESH_JS_MARKER,
+    VISUAL_REFRESH_MARKER,
     find_web_files,
     patch_css,
     patch_index,
@@ -48,6 +51,8 @@ class DashboardPatchTests(unittest.TestCase):
         self.assertIn(EVAL_MARKER, once)
         self.assertIn(BUSINESS_MARKER, once)
         self.assertIn("双口径", once)
+        self.assertIn(VISUAL_REFRESH_MARKER, once)
+        self.assertIn("真实挑战口径 F1", once)
 
     def test_javascript_patch_is_idempotent(self):
         once = patch_javascript(JAVASCRIPT)
@@ -55,11 +60,15 @@ class DashboardPatchTests(unittest.TestCase):
         self.assertIn(DUAL_EVAL_JS_MARKER, once)
         self.assertIn(SEAL_CLASS_DETAIL_JS_MARKER, once)
         self.assertIn("marker_free_audit", once)
+        self.assertIn(VISUAL_REFRESH_JS_MARKER, once)
+        self.assertIn("renderCommandHero", once)
 
     def test_css_patch_is_idempotent(self):
         once = patch_css("body {}")
         self.assertEqual(once, patch_css(once))
         self.assertIn(DUAL_EVAL_CSS_MARKER, once)
+        self.assertIn(VISUAL_REFRESH_CSS_MARKER, once)
+        self.assertIn(".command-hero", once)
 
     def test_find_web_files_chooses_dashboard(self):
         with tempfile.TemporaryDirectory() as tmp:
