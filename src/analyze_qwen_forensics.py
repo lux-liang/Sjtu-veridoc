@@ -21,7 +21,9 @@ FORENSIC_PROMPT = (
     "3) 拼接：是否有局部模糊、清晰度突变、色块/亮度不连续、可见拼接边界；\n"
     "4) 明显标记：SAMPLE/VOID/SYNTHETIC/作废/样本 等字样；\n"
     "5) 整体排版是否异常。\n"
+    "若看到印章，同时给出归一化坐标 bbox=[x0,y0,x1,y1]（左上右下，范围0-1）、颜色 red/gray/black/unknown、可辨文字和贴图怀疑分。"
     "只输出 JSON：{{\"tampered\":0或1,\"risk_score\":0-100,\"findings\":[{{\"type\":\"...\",\"evidence\":\"...\"}}],"
+    "\"seal_candidates\":[{{\"bbox\":[0.1,0.2,0.3,0.4],\"color\":\"gray\",\"text\":\"...\",\"pasted_suspicion\":0-100}}],"
     "\"reason_tags\":[\"...\"]}}。看不出明显篡改则 risk_score 应低。基于图像证据，不要编造。"
 )
 
@@ -50,6 +52,34 @@ def parse_json(text):
         except Exception:
             continue
     return {"tampered": 0, "risk_score": 0, "findings": [], "reason_tags": ["qwen_non_json"], "_raw": text[:400]}
+
+def normalize_seal_candidates(value):
+    normalized = []
+    if not isinstance(value, list):
+        return normalized
+    for item in value[:10]:
+        if not isinstance(item, dict):
+            continue
+        bbox = item.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            continue
+        try:
+            x0, y0, x1, y1 = [float(number) for number in bbox]
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+            continue
+        try:
+            suspicion = max(0, min(100, int(float(item.get("pasted_suspicion") or 0))))
+        except (TypeError, ValueError):
+            suspicion = 0
+        normalized.append({
+            "bbox": [round(x0, 6), round(y0, 6), round(x1, 6), round(y1, 6)],
+            "color": str(item.get("color") or "unknown")[:20],
+            "text": str(item.get("text") or "")[:120],
+            "pasted_suspicion": suspicion,
+        })
+    return normalized
 
 def qwen_forensics(image, doc_type, model, timeout, max_tokens):
     key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
@@ -109,11 +139,14 @@ def main():
         score = int(float(res.get("risk_score") or 0)) if res else 0
         tags = res.get("reason_tags") if isinstance(res.get("reason_tags"), list) else []
         finds = res.get("findings") if isinstance(res.get("findings"), list) else []
+        seals = normalize_seal_candidates(res.get("seal_candidates"))
         recs.append({**row, "qwen_fx_model": args.model,
                      "qwen_fx_tampered": int(res.get("tampered") or 0),
                      "qwen_fx_risk_score": max(0, min(100, score)),
                      "qwen_fx_reason_tags": "|".join(str(t)[:60] for t in tags),
                      "qwen_fx_findings": json.dumps(finds, ensure_ascii=False)[:800],
+                     "qwen_fx_seal_count": len(seals),
+                     "qwen_fx_seal_candidates": json.dumps(seals, ensure_ascii=False)[:1200],
                      "qwen_fx_error": err})
         if args.sleep > 0:
             time.sleep(args.sleep)
