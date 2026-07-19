@@ -112,10 +112,10 @@ BUSINESS_ACCEPTANCE_SECTION = r'''
           <div class="panel-head">
             <div>
               <p class="eyebrow">BUSINESS ACCEPTANCE</p>
-              <h2>五大业务分项准确度 · 验收基线</h2>
-              <span>去显式 marker 口径 · 同时展示 Recall、F1 与样本结构</span>
+              <h2>五大业务分项指标 · 内部评测</h2>
+              <span>去显式 marker 口径 · 当前结果尚未完成独立盲测验收</span>
             </div>
-            <span class="acceptance-scope">五项独立看板</span>
+            <span class="acceptance-scope">未正式验收</span>
           </div>
           <div id="business-acceptance-body" class="acceptance-loading">正在核算五大业务分项指标…</div>
         </section>
@@ -378,7 +378,7 @@ function acceptanceCard(item) {
     <div class="acceptance-card-head">
       <span class="acceptance-no">${meta.no}</span>
       <div><small>${meta.short}</small><h3>${esc(item.name || "业务分项")}</h3></div>
-      <span class="acceptance-status">${esc(item.status_label || "待验收")}</span>
+      <span class="acceptance-status">${esc(item.status_label || "内部评测 · 未验收")}</span>
     </div>
     <div class="acceptance-score">
       <div><span>Accuracy</span><strong>${accuracy}</strong><small>当前准确率</small></div>
@@ -945,6 +945,9 @@ def patch_index(text: str) -> str:
         text = text[:view_end] + TECHNICAL_PERSPECTIVE_CLOSE + text[view_end:]
     text = text.replace("<h2>五类风险检测原理</h2>", "<h2>检测原理：技术与业务双视角</h2>", 1)
     text = text.replace("<h2>带标签样本检测表现</h2>", "<h2>带标签样本检测表现 · 双口径</h2>", 1)
+    text = text.replace("<h2>五大业务分项准确度 · 验收基线</h2>", "<h2>五大业务分项指标 · 内部评测</h2>", 1)
+    text = text.replace("<span>去显式 marker 口径 · 同时展示 Recall、F1 与样本结构</span>", "<span>去显式 marker 口径 · 当前结果尚未完成独立盲测验收</span>", 1)
+    text = text.replace('<span class="acceptance-scope">五项独立看板</span>', '<span class="acceptance-scope">未正式验收</span>', 1)
     text = text.replace(
         '<span>以综合风险分 ≥ 25 判定“疑似虚假” · 页面实时聚合</span>',
         '<span>全标签口径与去显式 marker 审计口径并列展示 · 风险分 ≥ 25 判定“疑似虚假”</span>',
@@ -990,6 +993,7 @@ def patch_javascript(text: str) -> str:
         text = _insert_before(text, "const RISK_BANDS = [", VISUAL_REFRESH_JS, "risk bands for visual refresh")
     if BUSINESS_ACCEPTANCE_JS_MARKER not in text:
         text = _insert_before(text, "const RISK_BANDS = [", BUSINESS_ACCEPTANCE_JS, "risk bands for business acceptance")
+    text = text.replace('item.status_label || "待验收"', 'item.status_label || "内部评测 · 未验收"', 1)
     if SEAL_REASON_JS_MARKER not in text:
         text = _insert_after(
             text,

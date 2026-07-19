@@ -58,7 +58,7 @@ class DashboardPatchTests(unittest.TestCase):
         self.assertIn(BUSINESS_MARKER, once)
         self.assertIn(BUSINESS_ACCEPTANCE_MARKER, once)
         self.assertIn(TECHNICAL_PERSPECTIVE_MARKER, once)
-        self.assertIn("五大业务分项准确度", once)
+        self.assertIn("五大业务分项指标 · 内部评测", once)
         self.assertIn("技术视角：五类检测证据", once)
         self.assertIn("双口径", once)
         self.assertIn(VISUAL_REFRESH_MARKER, once)

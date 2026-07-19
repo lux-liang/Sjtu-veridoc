@@ -23,7 +23,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def patch_evaluation_scope(text: str) -> str:
-    if DUAL_SCOPE_MARKER in text and BUSINESS_ACCEPTANCE_MARKER in text:
+    if DUAL_SCOPE_MARKER in text and BUSINESS_ACCEPTANCE_MARKER in text and "内部评测 · 未验收" in text:
         return text
     helper = r'''# VERIDOC_DASHBOARD_EVALUATION_SCOPE_20260717
 # VERIDOC_DUAL_SCOPE_EVALUATION_20260718
@@ -121,13 +121,13 @@ def dashboard_business_metric(
     negative_count = len(negative_rows)
     if positive_count == 0 or negative_count == 0:
         status = "unavailable"
-        status_label = "暂无验收数据"
+        status_label = "暂无评测数据"
     elif positive_count < 20 or negative_count < 20:
         status = "insufficient"
-        status_label = "样本不足"
+        status_label = "样本不足 · 未验收"
     else:
         status = "diagnostic"
-        status_label = "待正式验收"
+        status_label = "内部评测 · 未验收"
     available = positive_count > 0 and negative_count > 0
     return {
         "key": key,
@@ -188,7 +188,7 @@ def business_acceptance_dashboard(rows: list[dict], threshold: int = BUSINESS_AC
             "name": "相似图片检测",
             "available": False,
             "status": "unavailable",
-            "status_label": "暂无验收数据",
+            "status_label": "暂无评测数据",
             "cohort": "当前尚未形成相似图片检测服务与带标签验收基准",
             "sample_count": 0,
             "class_counts": {"fake": 0, "normal": 0},
@@ -204,7 +204,7 @@ def business_acceptance_dashboard(rows: list[dict], threshold: int = BUSINESS_AC
         "score_field": "marker_free_risk_score",
         "scope": "current_same_set_diagnostic",
         "items": items,
-        "warning": "当前分项指标为去 marker 同集诊断基线，不等同于独立来源盲测验收结果。",
+        "warning": "当前结果是去 marker 同集内部评测，不代表验收通过；正式验收需使用独立来源盲测集。",
     }
 
 
