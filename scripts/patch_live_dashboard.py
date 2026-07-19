@@ -29,6 +29,11 @@ DUAL_EVAL_CSS_MARKER = "VERIDOC_DUAL_SCOPE_CSS_20260718"
 VISUAL_REFRESH_MARKER = 'data-veridoc-enhancement="visual-refresh-20260718-v2"'
 VISUAL_REFRESH_JS_MARKER = "VERIDOC_VISUAL_REFRESH_20260718_V2"
 VISUAL_REFRESH_CSS_MARKER = "VERIDOC_VISUAL_REFRESH_CSS_20260718_V2"
+BUSINESS_ACCEPTANCE_MARKER = 'data-veridoc-enhancement="business-acceptance-20260719"'
+BUSINESS_ACCEPTANCE_JS_MARKER = "VERIDOC_BUSINESS_ACCEPTANCE_20260719"
+BUSINESS_ACCEPTANCE_CSS_MARKER = "VERIDOC_BUSINESS_ACCEPTANCE_CSS_20260719"
+TECHNICAL_PERSPECTIVE_MARKER = 'data-veridoc-enhancement="technical-perspective-20260719"'
+TECHNICAL_PERSPECTIVE_CSS_MARKER = "VERIDOC_TECHNICAL_PERSPECTIVE_CSS_20260719"
 
 
 COMMAND_HERO_SECTION = r'''
@@ -98,6 +103,40 @@ EVALUATION_SECTION = r'''
           <div id="labeled-evaluation-body" class="eval-loading">
             正在核算 Accuracy、Precision、Recall 与 F1…
           </div>
+        </section>
+'''
+
+
+BUSINESS_ACCEPTANCE_SECTION = r'''
+        <section class="panel business-acceptance" id="business-acceptance" data-veridoc-enhancement="business-acceptance-20260719">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">BUSINESS ACCEPTANCE</p>
+              <h2>五大业务分项准确度 · 验收基线</h2>
+              <span>去显式 marker 口径 · 同时展示 Recall、F1 与样本结构</span>
+            </div>
+            <span class="acceptance-scope">五项独立看板</span>
+          </div>
+          <div id="business-acceptance-body" class="acceptance-loading">正在核算五大业务分项指标…</div>
+        </section>
+'''
+
+
+TECHNICAL_PERSPECTIVE_OPEN = r'''
+        <section class="panel technical-perspective" data-veridoc-enhancement="technical-perspective-20260719">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">TECHNICAL PERSPECTIVE</p>
+              <h2>技术视角：五类检测证据</h2>
+            </div>
+            <span>特征提取 → 触发判据 → 融合评分</span>
+          </div>
+          <p class="pr-lead">从实现侧统一说明系统如何读取 PDF 对象、页面像素、印章候选、OCR 坐标与业务字段，并将多类证据融合为可解释的风险结论。</p>
+          <div class="technical-stack">
+'''
+
+
+TECHNICAL_PERSPECTIVE_CLOSE = r'''          </div>
         </section>
 '''
 
@@ -309,6 +348,64 @@ async function renderLabeledEvaluation() {
     target.className = "eval-error";
     target.textContent = "带标签指标暂时无法加载，请检查 /api/documents 标签筛选接口。";
   }
+}
+'''
+
+
+BUSINESS_ACCEPTANCE_JS = r'''
+// VERIDOC_BUSINESS_ACCEPTANCE_20260719
+const BUSINESS_ACCEPTANCE_META = {
+  pdf_tamper: { no: "01", tone: "blue", short: "PDF" },
+  fake_seal: { no: "02", tone: "red", short: "SEAL" },
+  ps_invoice: { no: "03", tone: "amber", short: "INVOICE" },
+  credit_report: { no: "04", tone: "green", short: "CREDIT" },
+  similar_image: { no: "05", tone: "violet", short: "SIMILAR" },
+};
+
+function acceptanceMetric(label, value) {
+  return `<div><span>${label}</span><strong>${value == null ? "—" : fmtPct(Number(value))}</strong></div>`;
+}
+
+function acceptanceCard(item) {
+  const meta = BUSINESS_ACCEPTANCE_META[item.key] || { no: "—", tone: "blue", short: "BUSINESS" };
+  const available = item.available !== false && item.accuracy != null;
+  const accuracy = available ? fmtPct(Number(item.accuracy)) : "—";
+  const fakeCount = Number(item.class_counts?.fake || 0);
+  const normalCount = Number(item.class_counts?.normal || 0);
+  const status = item.status || "unavailable";
+  const meter = available ? Math.max(0, Math.min(100, Number(item.accuracy) * 100)) : 0;
+  return `<article class="acceptance-card tone-${meta.tone} status-${status}" style="--acceptance-value:${meter}%">
+    <div class="acceptance-card-head">
+      <span class="acceptance-no">${meta.no}</span>
+      <div><small>${meta.short}</small><h3>${esc(item.name || "业务分项")}</h3></div>
+      <span class="acceptance-status">${esc(item.status_label || "待验收")}</span>
+    </div>
+    <div class="acceptance-score">
+      <div><span>Accuracy</span><strong>${accuracy}</strong><small>当前准确率</small></div>
+      <div class="acceptance-ring" aria-label="准确率 ${accuracy}"><span>${available ? Math.round(meter) : "—"}</span><small>${available ? "%" : "N/A"}</small></div>
+    </div>
+    <div class="acceptance-submetrics">
+      ${acceptanceMetric("Recall", item.recall)}
+      ${acceptanceMetric("F1", item.f1)}
+    </div>
+    <div class="acceptance-samples"><span>虚假样本 <b>${fmtNum(fakeCount)}</b></span><span>正常样本 <b>${fmtNum(normalCount)}</b></span></div>
+    <p>${esc(item.cohort || "暂无分项说明")}</p>
+  </article>`;
+}
+
+function renderBusinessAcceptance(data) {
+  const target = document.querySelector("#business-acceptance-body");
+  if (!target) return;
+  const summary = data?.business_acceptance;
+  const items = summary?.items || [];
+  if (!items.length) {
+    target.className = "acceptance-error";
+    target.textContent = "五大业务分项指标暂时不可用，请检查后端验收数据。";
+    return;
+  }
+  target.className = "acceptance-body";
+  target.innerHTML = `<div class="acceptance-grid">${items.map(acceptanceCard).join("")}</div>
+    <div class="acceptance-note"><strong>验收说明</strong><span>${esc(summary.warning || "分项指标需结合 Recall、F1 与独立盲测共同验收。")}</span><b>判定阈值：风险分 ≥ ${Number(summary.threshold ?? LABELED_RISK_THRESHOLD)}</b></div>`;
 }
 '''
 
@@ -767,6 +864,35 @@ tbody td:first-child { max-width: 230px; font-weight: 650; word-break: break-wor
 '''
 
 
+BUSINESS_ACCEPTANCE_CSS = r'''
+
+/* VERIDOC_BUSINESS_ACCEPTANCE_CSS_20260719 */
+.business-acceptance { position: relative; overflow: hidden; margin-bottom: 18px; padding: 24px; border-top: 3px solid var(--sky); }
+.business-acceptance::after { content: "ACCEPTANCE"; position: absolute; right: 24px; top: 14px; color: color-mix(in srgb, var(--sky) 7%, transparent); font-size: 30px; font-weight: 900; letter-spacing: -.04em; pointer-events: none; }
+.acceptance-scope { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; color: #0369a1; background: #e0f2fe; font-size: 12px; font-weight: 750; }
+.acceptance-loading, .acceptance-error { padding: 22px; border: 1px dashed var(--line); border-radius: var(--r); color: var(--muted); background: #fbfcfe; text-align: center; }
+.acceptance-error { color: var(--red); background: #fff5f6; border-color: #fecdd5; }
+.acceptance-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 17px; }
+.acceptance-card { --acceptance-color: var(--blue); min-width: 0; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--line-2); border-top: 3px solid var(--acceptance-color); border-radius: 15px; background: linear-gradient(155deg, var(--panel), color-mix(in srgb, var(--acceptance-color) 4%, var(--panel))); box-shadow: var(--shadow-sm); }
+.acceptance-card.tone-blue { --acceptance-color: var(--blue); } .acceptance-card.tone-red { --acceptance-color: var(--red); }.acceptance-card.tone-amber { --acceptance-color: var(--amber); } .acceptance-card.tone-green { --acceptance-color: var(--green); }.acceptance-card.tone-violet { --acceptance-color: var(--violet); }
+.acceptance-card-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: start; }.acceptance-no { grid-row: 1 / span 2; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; color: #fff; background: var(--acceptance-color); font-size: 10px; font-weight: 850; }
+.acceptance-card-head small { display: block; color: var(--acceptance-color); font-size: 8.5px; font-weight: 850; letter-spacing: .12em; }.acceptance-card h3 { min-height: 36px; margin: 3px 0 0; font-size: 14px; line-height: 1.35; }
+.acceptance-status { grid-column: 1 / -1; justify-self: start; margin-top: 2px; padding: 4px 7px; border-radius: 6px; color: #92400e; background: #fff7ed; font-size: 9px; font-weight: 800; }.status-insufficient .acceptance-status, .status-unavailable .acceptance-status { color: #64748b; background: #f1f5f9; }
+.acceptance-score { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 9px; margin-top: 15px; padding: 13px 0; border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }.acceptance-score > div:first-child { display: grid; gap: 3px; }
+.acceptance-score span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }.acceptance-score strong { color: var(--acceptance-color); font-size: 26px; line-height: 1; font-weight: 850; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }.acceptance-score small { color: var(--faint); font-size: 9px; }
+.acceptance-ring { width: 54px; height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: radial-gradient(circle at center, var(--panel) 57%, transparent 59%), conic-gradient(var(--acceptance-color) var(--acceptance-value), var(--line-2) 0); }.acceptance-ring span { color: var(--text); font-size: 13px; font-weight: 850; line-height: 1; }.acceptance-ring small { color: var(--faint); font-size: 8px; }
+.acceptance-submetrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 10px; }.acceptance-submetrics > div { padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--acceptance-color) 5%, transparent); }.acceptance-submetrics span { display: block; color: var(--muted); font-size: 8.5px; }.acceptance-submetrics strong { display: block; margin-top: 3px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.acceptance-samples { display: flex; flex-wrap: wrap; gap: 5px 9px; margin-top: 10px; color: var(--faint); font-size: 9px; }.acceptance-samples b { color: var(--text); font-variant-numeric: tabular-nums; }.acceptance-card > p { margin: 9px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+.acceptance-note { position: relative; z-index: 1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 12px; padding: 11px 13px; border: 1px dashed var(--line); border-radius: 10px; background: color-mix(in srgb, var(--sky) 4%, var(--panel)); font-size: 11px; }.acceptance-note strong { color: #0369a1; }.acceptance-note span { color: var(--muted); }.acceptance-note b { color: var(--text); font-size: 10px; }
+
+/* VERIDOC_TECHNICAL_PERSPECTIVE_CSS_20260719 */
+.technical-perspective { border-top: 3px solid var(--blue); }.technical-stack { display: grid; gap: 13px; margin-top: 18px; }.technical-perspective .pr-card, .technical-perspective .pr-eval { margin: 0; padding: 20px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb, var(--blue) 1.7%, var(--panel)); box-shadow: none; }.technical-perspective .pr-eval { border-left: 4px solid var(--blue); }
+@media (max-width: 1180px) { .acceptance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .business-acceptance { padding: 17px; }.business-acceptance::after, .acceptance-scope { display: none; }.acceptance-grid { grid-template-columns: 1fr; }.acceptance-card h3 { min-height: 0; }.acceptance-note { grid-template-columns: 1fr; }.technical-perspective .pr-card, .technical-perspective .pr-eval { padding: 15px; overflow-x: auto; } }
+:root[data-theme="dark"] .acceptance-scope { color: #7dd3fc; background: rgba(14,165,233,.14); }:root[data-theme="dark"] .acceptance-loading, :root[data-theme="dark"] .acceptance-card { background: #0f1728; }:root[data-theme="dark"] .acceptance-status { color: #fbbf24; background: rgba(217,119,6,.16); }:root[data-theme="dark"] .status-insufficient .acceptance-status, :root[data-theme="dark"] .status-unavailable .acceptance-status { color: #94a3b8; background: rgba(100,116,139,.16); }:root[data-theme="dark"] .technical-perspective .pr-card, :root[data-theme="dark"] .technical-perspective .pr-eval { background: rgba(15,23,40,.78); }
+'''
+
+
 def _insert_after(text: str, anchor: str, addition: str, label: str) -> str:
     if anchor not in text:
         raise ValueError(f"cannot find {label} anchor")
@@ -794,6 +920,13 @@ def patch_index(text: str) -> str:
             EVALUATION_SECTION,
             "overview metrics",
         )
+    if BUSINESS_ACCEPTANCE_MARKER not in text:
+        text = _insert_after(
+            text,
+            EVALUATION_SECTION,
+            BUSINESS_ACCEPTANCE_SECTION,
+            "overall labeled evaluation section",
+        )
     if BUSINESS_MARKER not in text:
         text = _insert_before(
             text,
@@ -801,6 +934,15 @@ def patch_index(text: str) -> str:
             BUSINESS_SECTION,
             "first technical-principle card",
         )
+    if TECHNICAL_PERSPECTIVE_MARKER not in text:
+        technical_anchor = '        <article class="panel pr-card c-blue">'
+        if technical_anchor not in text:
+            raise ValueError("cannot find first technical card anchor")
+        start = text.index(technical_anchor)
+        text = text[:start] + TECHNICAL_PERSPECTIVE_OPEN + text[start:]
+        view_end_anchor = "      </section>\n    </main>"
+        view_end = text.index(view_end_anchor, start + len(TECHNICAL_PERSPECTIVE_OPEN))
+        text = text[:view_end] + TECHNICAL_PERSPECTIVE_CLOSE + text[view_end:]
     text = text.replace("<h2>五类风险检测原理</h2>", "<h2>检测原理：技术与业务双视角</h2>", 1)
     text = text.replace("<h2>带标签样本检测表现</h2>", "<h2>带标签样本检测表现 · 双口径</h2>", 1)
     text = text.replace(
@@ -829,8 +971,10 @@ def patch_index(text: str) -> str:
         '<button class="tab" data-view="principles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4v15.5M6.5 4H20v13H6.5A2.5 2.5 0 0 0 4 19.5"/></svg>检测原理</button>',
         1,
     )
-    text = text.replace('href="/styles.css"', 'href="/styles.css?v=20260718-v2"', 1)
-    text = text.replace('src="/app.js"', 'src="/app.js?v=20260718-v2"', 1)
+    text = text.replace('href="/styles.css"', 'href="/styles.css?v=20260719-v3"', 1)
+    text = text.replace('href="/styles.css?v=20260718-v2"', 'href="/styles.css?v=20260719-v3"', 1)
+    text = text.replace('src="/app.js"', 'src="/app.js?v=20260719-v3"', 1)
+    text = text.replace('src="/app.js?v=20260718-v2"', 'src="/app.js?v=20260719-v3"', 1)
     text = text.replace('<span>0.0.0.0:3002</span>', '<span>生产环境 · 引擎在线</span>', 1)
     return text
 
@@ -844,6 +988,8 @@ def patch_javascript(text: str) -> str:
         text = _insert_before(text, "const RISK_BANDS = [", EVALUATION_JS, "risk bands")
     if VISUAL_REFRESH_JS_MARKER not in text:
         text = _insert_before(text, "const RISK_BANDS = [", VISUAL_REFRESH_JS, "risk bands for visual refresh")
+    if BUSINESS_ACCEPTANCE_JS_MARKER not in text:
+        text = _insert_before(text, "const RISK_BANDS = [", BUSINESS_ACCEPTANCE_JS, "risk bands for business acceptance")
     if SEAL_REASON_JS_MARKER not in text:
         text = _insert_after(
             text,
@@ -883,6 +1029,10 @@ def patch_javascript(text: str) -> str:
     if call not in text:
         anchor = "  renderRiskDist(state.dashboard);\n"
         text = _insert_after(text, anchor, call, "dashboard render")
+    acceptance_call = "  renderBusinessAcceptance(state.dashboard);\n"
+    if acceptance_call not in text:
+        anchor = "  await renderLabeledEvaluation();\n"
+        text = _insert_after(text, anchor, acceptance_call, "labeled evaluation for business acceptance")
     visual_calls = "  renderCommandHero(state.dashboard);\n  decorateMetricCards();\n"
     if visual_calls not in text:
         anchor = "  renderRiskDist(state.dashboard);\n"
@@ -897,6 +1047,8 @@ def patch_css(text: str) -> str:
         text = text.rstrip() + DUAL_EVAL_CSS + "\n"
     if VISUAL_REFRESH_CSS_MARKER not in text:
         text = text.rstrip() + VISUAL_REFRESH_CSS + "\n"
+    if BUSINESS_ACCEPTANCE_CSS_MARKER not in text or TECHNICAL_PERSPECTIVE_CSS_MARKER not in text:
+        text = text.rstrip() + BUSINESS_ACCEPTANCE_CSS + "\n"
     return text
 
 

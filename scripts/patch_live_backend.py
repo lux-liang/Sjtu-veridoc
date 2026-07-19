@@ -13,6 +13,7 @@ BACKEND_MARKER = "VERIDOC_BACKEND_ENHANCEMENT_20260717"
 EVAL_SCOPE_MARKER = "VERIDOC_DASHBOARD_EVALUATION_SCOPE_20260717"
 DUAL_SCOPE_MARKER = "VERIDOC_DUAL_SCOPE_EVALUATION_20260718"
 SEAL_SEMANTIC_MARKER = "VERIDOC_SEAL_SEMANTIC_FIELDS_20260718"
+BUSINESS_ACCEPTANCE_MARKER = "VERIDOC_BUSINESS_ACCEPTANCE_20260719"
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -22,9 +23,9 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def patch_evaluation_scope(text: str) -> str:
-    if DUAL_SCOPE_MARKER in text:
+    if DUAL_SCOPE_MARKER in text and BUSINESS_ACCEPTANCE_MARKER in text:
         return text
-    helper = '''# VERIDOC_DASHBOARD_EVALUATION_SCOPE_20260717
+    helper = r'''# VERIDOC_DASHBOARD_EVALUATION_SCOPE_20260717
 # VERIDOC_DUAL_SCOPE_EVALUATION_20260718
 def dashboard_binary_metrics(rows: list[dict], threshold: int, score_field: str, scope: str) -> dict:
     labeled = [row for row in rows if row.get("label") in {"fake", "normal"}]
@@ -88,33 +89,169 @@ def labeled_dashboard_evaluation(rows: list[dict], threshold: int = 25) -> dict:
     return result
 
 
+# VERIDOC_BUSINESS_ACCEPTANCE_20260719
+BUSINESS_ACCEPTANCE_THRESHOLD = 25
+PDF_TAMPER_KINDS = {
+    "local_cover_overlay",
+    "screenshot_to_pdf",
+    "page_splice",
+    "text_layer_mismatch",
+    "font_mismatch",
+    "noise_patch",
+    "signature_paste",
+}
+
+
+def dashboard_tamper_kind(row: dict) -> str:
+    match = re.search(r"synthetic_fake_\d+_([^/]+)\.pdf$", str(row.get("path") or ""))
+    return match.group(1) if match else ""
+
+
+def dashboard_business_metric(
+    key: str,
+    name: str,
+    positive_rows: list[dict],
+    negative_rows: list[dict],
+    cohort: str,
+    threshold: int,
+) -> dict:
+    rows = positive_rows + negative_rows
+    metric = dashboard_binary_metrics(rows, threshold, "marker_free_risk_score", f"business_acceptance_{key}")
+    positive_count = len(positive_rows)
+    negative_count = len(negative_rows)
+    if positive_count == 0 or negative_count == 0:
+        status = "unavailable"
+        status_label = "暂无验收数据"
+    elif positive_count < 20 or negative_count < 20:
+        status = "insufficient"
+        status_label = "样本不足"
+    else:
+        status = "diagnostic"
+        status_label = "待正式验收"
+    available = positive_count > 0 and negative_count > 0
+    return {
+        "key": key,
+        "name": name,
+        "available": available,
+        "status": status,
+        "status_label": status_label,
+        "cohort": cohort,
+        "sample_count": metric["sample_count"],
+        "class_counts": metric["class_counts"],
+        "confusion_matrix": metric["confusion_matrix"],
+        "accuracy": metric["accuracy"] if available else None,
+        "precision": metric["precision"] if available else None,
+        "recall": metric["recall"] if available else None,
+        "f1": metric["f1"] if available else None,
+    }
+
+
+def business_acceptance_dashboard(rows: list[dict], threshold: int = BUSINESS_ACCEPTANCE_THRESHOLD) -> dict:
+    labeled = [row for row in rows if row.get("label") in {"fake", "normal"}]
+    fake_rows = [row for row in labeled if row.get("label") == "fake"]
+    normal_rows = [row for row in labeled if row.get("label") == "normal"]
+    items = [
+        dashboard_business_metric(
+            "pdf_tamper",
+            "PDF 篡改检测",
+            [row for row in fake_rows if dashboard_tamper_kind(row) in PDF_TAMPER_KINDS],
+            normal_rows,
+            "PDF 贴图、转 PDF、拼页、文本层/字体异常与签名贴图；正常样本作为对照",
+            threshold,
+        ),
+        dashboard_business_metric(
+            "fake_seal",
+            "虚假印章检测",
+            [row for row in fake_rows if dashboard_tamper_kind(row) == "stamp_paste"],
+            normal_rows,
+            "合成贴章样本；全部正常材料作为对照",
+            threshold,
+        ),
+        dashboard_business_metric(
+            "ps_invoice",
+            "PS 发票检测",
+            [row for row in fake_rows if row.get("doc_type") == "invoice"],
+            [row for row in normal_rows if row.get("doc_type") == "invoice"],
+            "发票类型内的虚假/正常材料对照",
+            threshold,
+        ),
+        dashboard_business_metric(
+            "credit_report",
+            "征信报告篡改",
+            [row for row in fake_rows if row.get("doc_type") == "credit_report"],
+            [row for row in normal_rows if row.get("doc_type") == "credit_report"],
+            "征信报告类型内的虚假/正常材料对照",
+            threshold,
+        ),
+        {
+            "key": "similar_image",
+            "name": "相似图片检测",
+            "available": False,
+            "status": "unavailable",
+            "status_label": "暂无验收数据",
+            "cohort": "当前尚未形成相似图片检测服务与带标签验收基准",
+            "sample_count": 0,
+            "class_counts": {"fake": 0, "normal": 0},
+            "confusion_matrix": {"tp": 0, "fp": 0, "tn": 0, "fn": 0},
+            "accuracy": None,
+            "precision": None,
+            "recall": None,
+            "f1": None,
+        },
+    ]
+    return {
+        "threshold": threshold,
+        "score_field": "marker_free_risk_score",
+        "scope": "current_same_set_diagnostic",
+        "items": items,
+        "warning": "当前分项指标为去 marker 同集诊断基线，不等同于独立来源盲测验收结果。",
+    }
+
+
 '''
     if EVAL_SCOPE_MARKER in text:
         start = text.index("# " + EVAL_SCOPE_MARKER)
         end = text.index("def build_dashboard() -> dict:\n", start)
-        return text[:start] + helper + text[end:]
-    text = replace_once(text, "def build_dashboard() -> dict:\n", helper + "def build_dashboard() -> dict:\n", "dashboard evaluation helper")
-    text = replace_once(
-        text,
-        '    combined_summary = load_json(COMBINED_RISK_JSON, {})\n\n    return {\n',
-        '    combined_summary = load_json(COMBINED_RISK_JSON, {})\n'
-        '    labeled_evaluation = labeled_dashboard_evaluation(rows)\n\n'
-        '    return {\n',
-        "dashboard-scoped evaluation",
-    )
-    text = replace_once(
-        text,
-        '        "labeled_evaluation": combined_summary.get("labeled_evaluation", {}),\n',
-        '        "labeled_evaluation": labeled_evaluation,\n',
-        "dashboard evaluation field",
-    )
-    text = replace_once(
-        text,
-        '            payload = load_json(COMBINED_RISK_JSON, {}).get("labeled_evaluation", {})\n'
-        '            self.send_json(payload)\n',
-        '            self.send_json(labeled_dashboard_evaluation(read_feature_rows()))\n',
-        "evaluation endpoint scope",
-    )
+        text = text[:start] + helper + text[end:]
+    else:
+        text = replace_once(text, "def build_dashboard() -> dict:\n", helper + "def build_dashboard() -> dict:\n", "dashboard evaluation helper")
+        text = replace_once(
+            text,
+            '    combined_summary = load_json(COMBINED_RISK_JSON, {})\n\n    return {\n',
+            '    combined_summary = load_json(COMBINED_RISK_JSON, {})\n'
+            '    labeled_evaluation = labeled_dashboard_evaluation(rows)\n\n'
+            '    return {\n',
+            "dashboard-scoped evaluation",
+        )
+        text = replace_once(
+            text,
+            '        "labeled_evaluation": combined_summary.get("labeled_evaluation", {}),\n',
+            '        "labeled_evaluation": labeled_evaluation,\n',
+            "dashboard evaluation field",
+        )
+        text = replace_once(
+            text,
+            '            payload = load_json(COMBINED_RISK_JSON, {}).get("labeled_evaluation", {})\n'
+            '            self.send_json(payload)\n',
+            '            self.send_json(labeled_dashboard_evaluation(read_feature_rows()))\n',
+            "evaluation endpoint scope",
+        )
+    if "business_acceptance = business_acceptance_dashboard(rows)" not in text:
+        text = replace_once(
+            text,
+            '    labeled_evaluation = labeled_dashboard_evaluation(rows)\n',
+            '    labeled_evaluation = labeled_dashboard_evaluation(rows)\n'
+            '    business_acceptance = business_acceptance_dashboard(rows)\n',
+            "dashboard business acceptance",
+        )
+    if '        "business_acceptance": business_acceptance,\n' not in text:
+        text = replace_once(
+            text,
+            '        "labeled_evaluation": labeled_evaluation,\n',
+            '        "labeled_evaluation": labeled_evaluation,\n'
+            '        "business_acceptance": business_acceptance,\n',
+            "dashboard business acceptance field",
+        )
     return text
 
 

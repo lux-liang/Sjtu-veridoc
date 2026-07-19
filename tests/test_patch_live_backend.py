@@ -2,6 +2,7 @@ import unittest
 
 from scripts.patch_live_backend import (
     BACKEND_MARKER,
+    BUSINESS_ACCEPTANCE_MARKER,
     DUAL_SCOPE_MARKER,
     EVAL_SCOPE_MARKER,
     SEAL_SEMANTIC_MARKER,
@@ -45,9 +46,12 @@ class BackendPatchTests(unittest.TestCase):
         self.assertIn(EVAL_SCOPE_MARKER, once)
         self.assertIn(DUAL_SCOPE_MARKER, once)
         self.assertIn(SEAL_SEMANTIC_MARKER, once)
+        self.assertIn(BUSINESS_ACCEPTANCE_MARKER, once)
         self.assertIn('parsed.path == "/api/evaluation"', once)
         self.assertIn('"marker_free_audit": audit', once)
         self.assertIn('"marker_free_risk_score"', once)
+        self.assertIn('"business_acceptance": business_acceptance', once)
+        self.assertIn('"similar_image"', once)
         self.assertIn('rows[:limit]', once)
 
 
