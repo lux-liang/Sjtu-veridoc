@@ -14,6 +14,7 @@ EVAL_SCOPE_MARKER = "VERIDOC_DASHBOARD_EVALUATION_SCOPE_20260717"
 DUAL_SCOPE_MARKER = "VERIDOC_DUAL_SCOPE_EVALUATION_20260718"
 SEAL_SEMANTIC_MARKER = "VERIDOC_SEAL_SEMANTIC_FIELDS_20260718"
 BUSINESS_ACCEPTANCE_MARKER = "VERIDOC_BUSINESS_ACCEPTANCE_20260719"
+PROVENANCE_MARKER = "VERIDOC_EVALUATION_PROVENANCE_20260721"
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -23,7 +24,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def patch_evaluation_scope(text: str) -> str:
-    if DUAL_SCOPE_MARKER in text and BUSINESS_ACCEPTANCE_MARKER in text and "内部评测 · 未验收" in text:
+    if DUAL_SCOPE_MARKER in text and BUSINESS_ACCEPTANCE_MARKER in text and PROVENANCE_MARKER in text:
         return text
     helper = r'''# VERIDOC_DASHBOARD_EVALUATION_SCOPE_20260717
 # VERIDOC_DUAL_SCOPE_EVALUATION_20260718
@@ -208,6 +209,30 @@ def business_acceptance_dashboard(rows: list[dict], threshold: int = BUSINESS_AC
     }
 
 
+# VERIDOC_EVALUATION_PROVENANCE_20260721
+def dashboard_evaluation_provenance(rows: list[dict], threshold: int = BUSINESS_ACCEPTANCE_THRESHOLD) -> dict:
+    labeled = [row for row in rows if row.get("label") in {"fake", "normal"}]
+    identity = "\n".join(
+        "|".join(str(row.get(key) or "") for key in ("document_id", "label", "doc_type", "path"))
+        for row in sorted(labeled, key=lambda item: str(item.get("document_id") or ""))
+    )
+    dataset_digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    versions = Counter(str(row.get("scoring_version") or "") for row in labeled if row.get("scoring_version"))
+    scoring_version = versions.most_common(1)[0][0] if versions else "unknown"
+    generated_at = None
+    if COMBINED_RISK_JSON.exists():
+        generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(COMBINED_RISK_JSON.stat().st_mtime))
+    return {
+        "dataset_version": f"labeled-{len(labeled)}-{dataset_digest}",
+        "sample_count": len(labeled),
+        "scoring_version": scoring_version,
+        "threshold": threshold,
+        "score_field": "combined_risk_score / marker_free_risk_score",
+        "generated_at": generated_at,
+        "marker_policy": "full-set 与去 marker 同集双口径",
+    }
+
+
 '''
     if EVAL_SCOPE_MARKER in text:
         start = text.index("# " + EVAL_SCOPE_MARKER)
@@ -251,6 +276,22 @@ def business_acceptance_dashboard(rows: list[dict], threshold: int = BUSINESS_AC
             '        "labeled_evaluation": labeled_evaluation,\n'
             '        "business_acceptance": business_acceptance,\n',
             "dashboard business acceptance field",
+        )
+    if "evaluation_meta = dashboard_evaluation_provenance(rows)" not in text:
+        text = replace_once(
+            text,
+            '    business_acceptance = business_acceptance_dashboard(rows)\n',
+            '    business_acceptance = business_acceptance_dashboard(rows)\n'
+            '    evaluation_meta = dashboard_evaluation_provenance(rows)\n',
+            "dashboard evaluation provenance",
+        )
+    if '        "evaluation_meta": evaluation_meta,\n' not in text:
+        text = replace_once(
+            text,
+            '        "business_acceptance": business_acceptance,\n',
+            '        "business_acceptance": business_acceptance,\n'
+            '        "evaluation_meta": evaluation_meta,\n',
+            "dashboard evaluation provenance field",
         )
     return text
 

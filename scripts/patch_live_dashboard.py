@@ -32,6 +32,8 @@ VISUAL_REFRESH_CSS_MARKER = "VERIDOC_VISUAL_REFRESH_CSS_20260718_V2"
 BUSINESS_ACCEPTANCE_MARKER = 'data-veridoc-enhancement="business-acceptance-20260719"'
 BUSINESS_ACCEPTANCE_JS_MARKER = "VERIDOC_BUSINESS_ACCEPTANCE_20260719"
 BUSINESS_ACCEPTANCE_CSS_MARKER = "VERIDOC_BUSINESS_ACCEPTANCE_CSS_20260719"
+PROVENANCE_JS_MARKER = "VERIDOC_EVALUATION_PROVENANCE_20260721"
+PROVENANCE_CSS_MARKER = "VERIDOC_EVALUATION_PROVENANCE_CSS_20260721"
 TECHNICAL_PERSPECTIVE_MARKER = 'data-veridoc-enhancement="technical-perspective-20260719"'
 TECHNICAL_PERSPECTIVE_CSS_MARKER = "VERIDOC_TECHNICAL_PERSPECTIVE_CSS_20260719"
 
@@ -406,6 +408,16 @@ function renderBusinessAcceptance(data) {
   target.className = "acceptance-body";
   target.innerHTML = `<div class="acceptance-grid">${items.map(acceptanceCard).join("")}</div>
     <div class="acceptance-note"><strong>验收说明</strong><span>${esc(summary.warning || "分项指标需结合 Recall、F1 与独立盲测共同验收。")}</span><b>判定阈值：风险分 ≥ ${Number(summary.threshold ?? LABELED_RISK_THRESHOLD)}</b></div>`;
+}
+'''
+
+
+PROVENANCE_JS = r'''
+// VERIDOC_EVALUATION_PROVENANCE_20260721
+function evaluationProvenanceHTML(provenance) {
+  if (!provenance) return "";
+  const generated = provenance.generated_at || "未记录";
+  return `<div class="eval-provenance"><span>数据版本 <b>${esc(provenance.dataset_version || "unknown")}</b></span><span>评分版本 <b>${esc(provenance.scoring_version || "unknown")}</b></span><span>阈值 <b>${Number(provenance.threshold ?? LABELED_RISK_THRESHOLD)}</b></span><span>产物时间 <b>${esc(generated)}</b></span></div>`;
 }
 '''
 
@@ -893,6 +905,16 @@ BUSINESS_ACCEPTANCE_CSS = r'''
 '''
 
 
+PROVENANCE_CSS = r'''
+
+/* VERIDOC_EVALUATION_PROVENANCE_CSS_20260721 */
+.eval-provenance { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 14px 0 2px; color: var(--faint); font-size: 10.5px; }
+.eval-provenance span { padding: 4px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: color-mix(in srgb, var(--blue) 3%, var(--panel)); }
+.eval-provenance b { color: var(--text); font-weight: 750; }
+.acceptance-body > .eval-provenance { margin-top: 0; margin-bottom: 12px; }
+'''
+
+
 def _insert_after(text: str, anchor: str, addition: str, label: str) -> str:
     if anchor not in text:
         raise ValueError(f"cannot find {label} anchor")
@@ -993,6 +1015,30 @@ def patch_javascript(text: str) -> str:
         text = _insert_before(text, "const RISK_BANDS = [", VISUAL_REFRESH_JS, "risk bands for visual refresh")
     if BUSINESS_ACCEPTANCE_JS_MARKER not in text:
         text = _insert_before(text, "const RISK_BANDS = [", BUSINESS_ACCEPTANCE_JS, "risk bands for business acceptance")
+    if PROVENANCE_JS_MARKER not in text:
+        text = _insert_before(text, "const RISK_BANDS = [", PROVENANCE_JS, "risk bands for evaluation provenance")
+    if "evaluationProvenanceHTML(meta.provenance)" not in text:
+        text = _insert_after(text, "  target.innerHTML = `\n", "    ${evaluationProvenanceHTML(meta.provenance)}\n", "evaluation provenance header")
+        text = text.replace(
+            '        auditCoverage: auditMetrics ? `同集重评分 · ${fmtNum(auditMetrics.total)} 份` : "待重算",\n',
+            '        auditCoverage: auditMetrics ? `同集重评分 · ${fmtNum(auditMetrics.total)} 份` : "待重算",\n'
+            '        provenance: state.dashboard?.evaluation_meta,\n',
+        )
+        text = text.replace(
+            '      auditCoverage: auditMetrics ? `同集重评分 · ${fmtNum(auditMetrics.total)} 份` : "待重算",\n',
+            '      auditCoverage: auditMetrics ? `同集重评分 · ${fmtNum(auditMetrics.total)} 份` : "待重算",\n'
+            '      provenance: state.dashboard?.evaluation_meta,\n',
+        )
+        text = text.replace(
+            '      provenance: state.dashboard?.evaluation_meta,\n        provenance: state.dashboard?.evaluation_meta,\n',
+            '        provenance: state.dashboard?.evaluation_meta,\n',
+        )
+    if "evaluationProvenanceHTML(data?.evaluation_meta)" not in text:
+        text = text.replace(
+            '  target.innerHTML = `<div class="acceptance-grid">',
+            '  target.innerHTML = `${evaluationProvenanceHTML(data?.evaluation_meta)}<div class="acceptance-grid">',
+            1,
+        )
     text = text.replace('item.status_label || "待验收"', 'item.status_label || "内部评测 · 未验收"', 1)
     if SEAL_REASON_JS_MARKER not in text:
         text = _insert_after(
@@ -1053,6 +1099,8 @@ def patch_css(text: str) -> str:
         text = text.rstrip() + VISUAL_REFRESH_CSS + "\n"
     if BUSINESS_ACCEPTANCE_CSS_MARKER not in text or TECHNICAL_PERSPECTIVE_CSS_MARKER not in text:
         text = text.rstrip() + BUSINESS_ACCEPTANCE_CSS + "\n"
+    if PROVENANCE_CSS_MARKER not in text:
+        text = text.rstrip() + PROVENANCE_CSS + "\n"
     return text
 
 

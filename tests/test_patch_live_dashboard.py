@@ -6,6 +6,8 @@ from scripts.patch_live_dashboard import (
     BUSINESS_ACCEPTANCE_CSS_MARKER,
     BUSINESS_ACCEPTANCE_JS_MARKER,
     BUSINESS_ACCEPTANCE_MARKER,
+    PROVENANCE_CSS_MARKER,
+    PROVENANCE_JS_MARKER,
     BUSINESS_MARKER,
     DUAL_EVAL_CSS_MARKER,
     DUAL_EVAL_JS_MARKER,
@@ -74,6 +76,7 @@ class DashboardPatchTests(unittest.TestCase):
         self.assertIn(BUSINESS_ACCEPTANCE_JS_MARKER, once)
         self.assertIn("renderCommandHero", once)
         self.assertIn("renderBusinessAcceptance", once)
+        self.assertIn(PROVENANCE_JS_MARKER, once)
 
     def test_css_patch_is_idempotent(self):
         once = patch_css("body {}")
@@ -82,6 +85,7 @@ class DashboardPatchTests(unittest.TestCase):
         self.assertIn(VISUAL_REFRESH_CSS_MARKER, once)
         self.assertIn(BUSINESS_ACCEPTANCE_CSS_MARKER, once)
         self.assertIn(TECHNICAL_PERSPECTIVE_CSS_MARKER, once)
+        self.assertIn(PROVENANCE_CSS_MARKER, once)
         self.assertIn(".command-hero", once)
 
     def test_find_web_files_chooses_dashboard(self):
