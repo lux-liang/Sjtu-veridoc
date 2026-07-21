@@ -184,10 +184,16 @@ def ocr_marker_reasons(text: str) -> list[str]:
     return list(dict.fromkeys(markers))
 
 
-def apply_ocr_evidence(combined: int, confidence: str, all_reasons: list[str], ocr: dict) -> tuple[int, str, list[str]]:
+def apply_ocr_evidence(
+    combined: int,
+    confidence: str,
+    all_reasons: list[str],
+    ocr: dict,
+    include_text_markers: bool = True,
+) -> tuple[int, str, list[str]]:
     ocr_score = as_int(ocr.get("ocr_risk_score"))
     ocr_reasons = [f"ocr:{item}" for item in reasons(ocr.get("ocr_risk_reasons", ""))]
-    marker_reasons = ocr_marker_reasons(ocr.get("ocr_text_preview", ""))
+    marker_reasons = ocr_marker_reasons(ocr.get("ocr_text_preview", "")) if include_text_markers else []
     all_reasons = list(dict.fromkeys(all_reasons + ocr_reasons + marker_reasons))
 
     if marker_reasons:
@@ -244,6 +250,18 @@ V3_NEUTRAL = {
     "visual:dense_edge_or_paste_boundary",
     "visual:local_noise_block_inconsistency",
     "visual:red_stamp_like_region",
+    "visual:seal_color_agnostic_candidate",
+    "visual:seal_monochrome_candidate",
+    "visual:seal_candidate_hard_edge_review",
+    "visual:seal_candidate_likely_seal",
+    "visual:seal_candidate_likely_logo",
+    "visual:seal_candidate_dense_square_nonseal",
+    "visual:seal_candidate_unknown_review",
+    "visual:seal_position_expected_context",
+    "visual:seal_position_unusual_review",
+    "visual:seal_ocr_entity_match_context",
+    "visual:seal_ocr_entity_mismatch_review",
+    "visual:seal_ocr_low_confidence_review",
     "text:pdf_text_layer_missing_or_unreadable",
     "text:very_sparse_text_layer",
     "text:text_layer_repetition",
@@ -253,6 +271,83 @@ V3_NEUTRAL = {
     "text:contract_party_field_missing",
     "text:invoice_number_missing",
 }
+
+
+def _binary_metrics(records: list[dict], threshold: int, score_field: str, scope: str) -> dict:
+    labeled = [record for record in records if record.get("label") in {"fake", "normal"}]
+    tp = fp = tn = fn = 0
+    for record in labeled:
+        actual_fake = record.get("label") == "fake"
+        predicted_fake = as_int(record.get(score_field)) >= threshold
+        if actual_fake and predicted_fake:
+            tp += 1
+        elif not actual_fake and predicted_fake:
+            fp += 1
+        elif actual_fake:
+            fn += 1
+        else:
+            tn += 1
+
+    divide = lambda numerator, denominator: numerator / denominator if denominator else 0.0
+    precision = divide(tp, tp + fp)
+    recall = divide(tp, tp + fn)
+    accuracy = divide(tp + tn, len(labeled))
+    f1 = divide(2 * precision * recall, precision + recall)
+    fake_count = tp + fn
+    normal_count = tn + fp
+    return {
+        "scope": scope,
+        "score_field": score_field,
+        "decision_rule": f"{score_field} >= {threshold}",
+        "threshold": threshold,
+        "positive_label": "fake",
+        "sample_count": len(labeled),
+        "class_counts": {"fake": fake_count, "normal": normal_count},
+        "confusion_matrix": {"tp": tp, "fp": fp, "tn": tn, "fn": fn},
+        "accuracy": round(accuracy, 6),
+        "precision": round(precision, 6),
+        "recall": round(recall, 6),
+        "f1": round(f1, 6),
+    }
+
+
+def has_explicit_marker(record: dict) -> bool:
+    if str(record.get("marker_flag") or "0") == "1":
+        return True
+    marker_reasons = {
+        "ocr:training_synthetic_marker",
+        "ocr:edited_marker",
+        "ocr:void_marker",
+        "ocr:fake_marker",
+    }
+    return any(
+        reason.startswith("marker:") or reason in marker_reasons
+        for reason in reasons(record.get("combined_risk_reasons", ""))
+    )
+
+
+def labeled_binary_evaluation(records: list[dict], threshold: int = 25) -> dict:
+    """Compute full and marker-suppressed metrics on the same labeled records."""
+    labeled = [record for record in records if record.get("label") in {"fake", "normal"}]
+    full = _binary_metrics(records, threshold, "combined_risk_score", "full_labeled_set")
+    marker_score_field = "marker_free_risk_score" if any("marker_free_risk_score" in record for record in labeled) else "combined_risk_score"
+    audit = _binary_metrics(records, threshold, marker_score_field, "marker_free_counterfactual")
+    marker_fake = sum(record.get("label") == "fake" and has_explicit_marker(record) for record in labeled)
+    marker_normal = sum(record.get("label") == "normal" and has_explicit_marker(record) for record in labeled)
+    result = dict(full)
+    result.update({
+        "full_set": full,
+        "marker_free_audit": audit,
+        "marker_driven_fake_count": marker_fake,
+        "marker_normal_count": marker_normal,
+        "unmarked_fake_count": full["class_counts"]["fake"] - marker_fake,
+        "generalization_warning": (
+            "Full-set metrics include explicit synthetic/edited/training markers. The marker-free audit "
+            "re-scores the same labeled records without marker channels; neither scope is a substitute "
+            "for an independently sourced unseen-production test set."
+        ),
+    })
+    return result
 
 
 def score_v3(all_reasons: list[str], marker_flag: bool = False, marker_tokens: str = "") -> tuple[int, str, list[str]]:
@@ -318,6 +413,10 @@ def main() -> None:
                         help="v2=legacy evidence-calibrated (kept for rollback), v3=sign-corrected (default)")
     parser.add_argument("--qwen-csv", default="",
                         help="optional Qwen-VL visual-forensics output (analyze_qwen_forensics.py); external-API, off by default")
+    parser.add_argument("--seal-ocr-csv", default="",
+                        help="optional seal OCR/entity reconciliation output from analyze_seal_ocr.py")
+    parser.add_argument("--decision-threshold", type=int, default=25,
+                        help="document-level fake threshold used for labeled evaluation in the summary")
     parser.add_argument("--out-csv", required=True)
     parser.add_argument("--out-json", required=True)
     args = parser.parse_args()
@@ -328,34 +427,63 @@ def main() -> None:
     ocr_rows = {row["document_id"]: row for row in read_csv(Path(args.ocr_csv))} if args.ocr_csv else {}
     marker_rows = load_marker_flags(args.marker_csv) if args.scoring_version == "v3" else {}
     qwen_rows = {r["document_id"]: r for r in read_csv(Path(args.qwen_csv))} if args.qwen_csv else {}
-    ids = sorted(set(pdf_rows) | set(visual_rows) | set(text_rows) | set(ocr_rows))
+    seal_ocr_rows = {r["document_id"]: r for r in read_csv(Path(args.seal_ocr_csv))} if args.seal_ocr_csv else {}
+    ids = sorted(set(pdf_rows) | set(visual_rows) | set(text_rows) | set(ocr_rows) | set(seal_ocr_rows))
     records = []
     for doc_id in ids:
         pdf = pdf_rows.get(doc_id, {})
         visual = visual_rows.get(doc_id, {})
         text = text_rows.get(doc_id, {})
         ocr = ocr_rows.get(doc_id, {})
+        seal_ocr = seal_ocr_rows.get(doc_id, {})
+        qwen = qwen_rows.get(doc_id, {})
         object_score = as_int(pdf.get("object_risk_score"))
         visual_score = as_int(visual.get("visual_risk_score"))
         business_score = as_int(text.get("business_risk_score"))
         all_reasons = []
         all_reasons += [f"object:{item}" for item in reasons(pdf.get("object_risk_reasons", ""))]
-        all_reasons += [f"visual:{item}" for item in reasons(visual.get("visual_risk_reasons", ""))]
+        visual_reason_items = reasons(visual.get("visual_risk_reasons", ""))
+        if seal_ocr.get("seal_candidate_class"):
+            visual_reason_items = [
+                item for item in visual_reason_items
+                if item not in {
+                    "seal_candidate_likely_seal",
+                    "seal_candidate_likely_logo",
+                    "seal_candidate_unknown_review",
+                }
+            ]
+        all_reasons += [f"visual:{item}" for item in visual_reason_items]
+        all_reasons += [f"visual:{item}" for item in reasons(seal_ocr.get("seal_ocr_risk_reasons", ""))]
         all_reasons += [f"text:{item}" for item in reasons(text.get("business_risk_reasons", ""))]
+        marker_flag = False
+        marker_tokens = ""
+        marker_free_combined = 0
+        marker_free_confidence = "none"
         if args.scoring_version == "v3":
             marker = marker_rows.get(doc_id, {})
             marker_flag = str(marker.get("marker_flag", "0")) == "1"
-            combined, risk_confidence, all_reasons = score_v3(all_reasons, marker_flag, marker.get("marker_tokens", ""))
+            marker_tokens = marker.get("marker_tokens", "")
+            marker_free_combined, marker_free_confidence, marker_free_reasons = score_v3(all_reasons, False)
+            if ocr:
+                marker_free_combined, marker_free_confidence, marker_free_reasons = apply_ocr_evidence(
+                    marker_free_combined, marker_free_confidence, marker_free_reasons, ocr, include_text_markers=False
+                )
+            if qwen_rows and qwen:
+                marker_free_combined, marker_free_confidence, marker_free_reasons = apply_qwen_evidence(
+                    marker_free_combined, marker_free_confidence, marker_free_reasons, qwen
+                )
+            combined, risk_confidence, all_reasons = score_v3(all_reasons, marker_flag, marker_tokens)
             if ocr:
                 combined, risk_confidence, all_reasons = apply_ocr_evidence(combined, risk_confidence, all_reasons, ocr)
             if qwen_rows:
-                qwen = qwen_rows.get(doc_id, {})
                 if qwen:
                     combined, risk_confidence, all_reasons = apply_qwen_evidence(combined, risk_confidence, all_reasons, qwen)
         else:
             combined, risk_confidence, all_reasons = score_v2(pdf, object_score, visual_score, business_score, all_reasons)
             if ocr:
                 combined, risk_confidence, all_reasons = apply_ocr_evidence(combined, risk_confidence, all_reasons, ocr)
+            marker_free_combined = combined
+            marker_free_confidence = risk_confidence
         record = {
             "document_id": doc_id,
             "label": pdf.get("label") or text.get("label") or visual.get("label") or "",
@@ -364,6 +492,10 @@ def main() -> None:
             "visual_risk_score": visual_score,
             "business_risk_score": business_score,
             "combined_risk_score": combined,
+            "marker_free_risk_score": marker_free_combined,
+            "marker_free_risk_confidence": marker_free_confidence,
+            "marker_flag": int(marker_flag),
+            "marker_tokens": marker_tokens,
             "risk_confidence": risk_confidence,
             "scoring_version": "v3_sign_corrected" if args.scoring_version == "v3" else "v2_evidence_calibrated",
             "combined_risk_reasons": "|".join(dict.fromkeys(all_reasons)),
@@ -374,6 +506,19 @@ def main() -> None:
             "field_account_count": text.get("field_account_count", ""),
             "field_invoice_count": text.get("field_invoice_count", ""),
             "extracted_fields_json": text.get("extracted_fields_json", ""),
+            "seal_ocr_text": seal_ocr.get("seal_ocr_text", ""),
+            "seal_entity_best_match": seal_ocr.get("seal_entity_best_match", ""),
+            "seal_entity_similarity": seal_ocr.get("seal_entity_similarity", ""),
+            "seal_ocr_error": seal_ocr.get("seal_ocr_error", ""),
+            "seal_candidate_class": seal_ocr.get("seal_candidate_class", visual.get("seal_candidate_class", "")),
+            "seal_candidate_class_confidence": seal_ocr.get("seal_candidate_class_confidence", ""),
+            "seal_candidate_class_reasons": seal_ocr.get("seal_candidate_class_reasons", ""),
+            "seal_candidate_duplicate_count": seal_ocr.get("seal_candidate_duplicate_count", ""),
+            "seal_candidate_zone": seal_ocr.get("seal_candidate_zone", ""),
+            "seal_position_assessment": seal_ocr.get("seal_position_assessment", ""),
+            "seal_ocr_triggered": seal_ocr.get("seal_ocr_triggered", ""),
+            "qwen_seal_count": qwen.get("qwen_fx_seal_count", ""),
+            "qwen_seal_candidates": qwen.get("qwen_fx_seal_candidates", ""),
             "path": pdf.get("path") or text.get("path") or visual.get("path") or "",
         }
         records.append(record)
@@ -386,6 +531,10 @@ def main() -> None:
         "visual_risk_score",
         "business_risk_score",
         "combined_risk_score",
+        "marker_free_risk_score",
+        "marker_free_risk_confidence",
+        "marker_flag",
+        "marker_tokens",
         "risk_confidence",
         "scoring_version",
         "combined_risk_reasons",
@@ -396,6 +545,19 @@ def main() -> None:
         "field_account_count",
         "field_invoice_count",
         "extracted_fields_json",
+        "seal_ocr_text",
+        "seal_entity_best_match",
+        "seal_entity_similarity",
+        "seal_ocr_error",
+        "seal_candidate_class",
+        "seal_candidate_class_confidence",
+        "seal_candidate_class_reasons",
+        "seal_candidate_duplicate_count",
+        "seal_candidate_zone",
+        "seal_position_assessment",
+        "seal_ocr_triggered",
+        "qwen_seal_count",
+        "qwen_seal_candidates",
         "path",
     ]
     Path(args.out_csv).parent.mkdir(parents=True, exist_ok=True)
@@ -423,7 +585,12 @@ def main() -> None:
             reason_counts[reason] += 1
     for bucket in by_label.values():
         bucket["mean_combined_risk"] = round(bucket["mean_combined_risk"] / max(bucket["count"], 1), 2)
-    summary = {"count": len(records), "by_label": by_label, "top_reasons": reason_counts.most_common(30)}
+    summary = {
+        "count": len(records),
+        "by_label": by_label,
+        "top_reasons": reason_counts.most_common(30),
+        "labeled_evaluation": labeled_binary_evaluation(records, args.decision_threshold),
+    }
     Path(args.out_json).write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

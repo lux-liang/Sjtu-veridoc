@@ -125,7 +125,31 @@ class IntegratedDetector:
             if "red_stamp_like_region" in split_reasons(visual.get("visual_risk_reasons", "")):
                 seal_score += 12
                 seal_reasons.append("red_stamp_like_region")
-            components["seal_overlay"] = {"score": min(100, seal_score), "level": risk_level(seal_score), "reasons": seal_reasons}
+            candidate_score = as_float(visual.get("seal_candidate_best_score"))
+            if candidate_score >= 0.52:
+                candidate_class = visual.get("seal_candidate_class") or "unknown"
+                if candidate_class == "seal":
+                    seal_reasons.append("color_agnostic_likely_seal_localized")
+                elif candidate_class == "logo":
+                    seal_reasons.append("color_agnostic_likely_logo_localized")
+                else:
+                    seal_reasons.append("color_agnostic_unknown_candidate_localized")
+                if as_float(visual.get("seal_candidate_is_monochrome")) >= 1:
+                    seal_reasons.append("monochrome_or_photocopy_seal_candidate")
+            components["seal_overlay"] = {
+                "score": min(100, seal_score),
+                "level": risk_level(seal_score),
+                "reasons": seal_reasons,
+                "candidate": {
+                    "score": candidate_score,
+                    "semantic_score": as_float(visual.get("seal_candidate_semantic_score")),
+                    "class": visual.get("seal_candidate_class", "none"),
+                    "class_reason": visual.get("seal_candidate_class_reason", ""),
+                    "bbox_norm": visual.get("seal_candidate_bbox_norm", ""),
+                    "is_monochrome": int(as_float(visual.get("seal_candidate_is_monochrome")) >= 1),
+                    "ocr_crop_path": visual.get("seal_candidate_ocr_path", ""),
+                },
+            }
         if "ocr_text" in enabled:
             ocr_score = max(as_float(ocr.get("ocr_risk_score")), as_float(text.get("business_risk_score")))
             ocr_reasons = split_reasons(ocr.get("ocr_risk_reasons", "")) + split_reasons(text.get("business_risk_reasons", ""))
@@ -179,6 +203,6 @@ class IntegratedDetector:
             return {}
         out_csv = tmp / "visual.csv"
         out_json = tmp / "visual.json"
-        subprocess.run(["python3", str(script), "--manifest", str(manifest), "--out-csv", str(out_csv), "--out-json", str(out_json), "--render-dir", str(tmp / "render"), "--dpi", "110"], cwd=str(self.root), check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(["python3", str(script), "--manifest", str(manifest), "--out-csv", str(out_csv), "--out-json", str(out_json), "--render-dir", str(tmp / "render"), "--dpi", "110", "--max-pages", "3"], cwd=str(self.root), check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         rows = read_csv(out_csv)
         return rows[0] if rows else {}

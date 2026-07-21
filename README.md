@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | ① | PDF 结构 | pdfinfo/pdfimages + 字节正则 | SMask 蒙版、整页图+小图层、增量更新、嵌入脚本 | `src/extract_pdf_features.py` |
 | ② | 图片 PS | ELA 重压缩误差、分块噪声方差、边缘密度 | 局部压缩历史突变、噪声不一致 | `src/analyze_visual_forensics.py` |
-| ③ | 印章贴图 | 红色分割 + 连通域分析 | 边缘硬度、颜色均匀度、红块占比 | `src/analyze_visual_forensics.py` |
+| ③ | 印章贴图 | 红色分割 + 颜色无关环形候选定位 | 红章特征、黑白/复印章坐标、环形覆盖、OCR 裁剪 | `src/analyze_visual_forensics.py` |
 | ④ | OCR/文本层 | pdftotext -bbox 词坐标、tesseract | 文本层缺失/重复、置信度、坐标版式 | `src/analyze_text_business_rules.py` |
 | ⑤ | 业务逻辑 | 正则字段抽取 + 勾稽校验 | 发票金额+税额=价税合计、银行余额连续性 | `src/analyze_text_business_rules.py` |
 
@@ -37,14 +37,30 @@ python3 run_detection.py --file path/to/doc.pdf --doc-type invoice --format tabl
 # 批量特征 → 融合评分
 python3 src/extract_pdf_features.py        --manifest outputs/manifest.csv --out-csv outputs/features/pdf_object_features.csv --out-json /tmp/a.json
 python3 src/analyze_text_business_rules.py --manifest outputs/manifest.csv --out-csv outputs/features/text_business_features.csv --out-json /tmp/b.json --out-words-csv outputs/features/text_word_coordinates.csv
-python3 src/build_combined_risk.py --pdf-csv ... --visual-csv ... --text-csv ... --scoring-version v3 --out-csv outputs/features/combined_risk_features.csv --out-json outputs/features/combined_risk_summary.json
+python3 src/analyze_visual_forensics.py --manifest outputs/manifest.csv --out-csv outputs/features/visual_forensics_features.csv --out-json /tmp/v.json --seal-crop-dir outputs/seal_candidates --max-pages 3
+python3 src/analyze_seal_ocr.py --visual-csv outputs/features/visual_forensics_features.csv --text-csv outputs/features/text_business_features.csv --out-csv outputs/features/seal_ocr_features.csv --out-json /tmp/seal.json
+python3 src/build_combined_risk.py --pdf-csv ... --visual-csv ... --text-csv ... --seal-ocr-csv outputs/features/seal_ocr_features.csv --scoring-version v3 --out-csv outputs/features/combined_risk_features.csv --out-json outputs/features/combined_risk_summary.json
 ```
 
 ## 评测基准（可复现）
 
 - `src/make_semantic_tamper.py` — 同源**语义**篡改基准（改金额破坏勾稽），验证业务逻辑检测。
 - `src/generate_hard_negatives.py` — 同源**像素**篡改基准（copy-move/拼接/inpaint/重压缩）。
+- `src/make_seal_localization_bench.py` + `scripts/eval_seal_localization.py` — 零 PII 红章/灰章/复印章/淡章定位基准，含圆形 Logo 困难负样本。
 - `scripts/eval_scoring.py` — AUC / 分层交叉验证评估。
+
+颜色无关印章定位在 120 份合成基准上的首轮结果：Recall **98.75%**、F1 **88.27%**、检测成功样本平均 IoU **0.596**。圆形 Logo 会被召回为印章候选，因此该能力只负责“定位与送 OCR”，不能单独判定虚假印章。
+
+## 线上首页维护
+
+当前部署机上的 Web 服务尚未纳入本仓库。针对首页的“带标签 Accuracy / Precision / Recall / F1”与“业务五大产品线”改版，仓库提供幂等补丁：
+
+```bash
+python3 scripts/patch_live_dashboard.py --root /root/Liangjialiang2 --dry-run
+python3 scripts/patch_live_dashboard.py --root /root/Liangjialiang2
+```
+
+完整的项目剖析、指标限制、黑白印章路线和五大业务拆解见 [`docs/PROJECT_AND_HOMEPAGE_ANALYSIS_20260717.md`](docs/PROJECT_AND_HOMEPAGE_ANALYSIS_20260717.md)。上线后应尽快把 Web 源码和启动配置提交进仓库，替代部署机独有源码。
 
 ## 目录
 
@@ -52,6 +68,7 @@ python3 src/build_combined_risk.py --pdf-csv ... --visual-csv ... --text-csv ...
 src/                检测器与特征提取
   extract_pdf_features.py        ① PDF 结构
   analyze_visual_forensics.py    ②③ 图像取证 + 印章
+  analyze_seal_ocr.py            ③ 印章极坐标展开/OCR + 文档主体匹配
   analyze_text_business_rules.py ④⑤ 文本层 + 业务逻辑
   analyze_ocr_deepseek.py        ④ OCR(需 tesseract) + LLM 核验
   extract_text_markers.py        显式伪造标记提取

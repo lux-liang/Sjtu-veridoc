@@ -43,7 +43,7 @@ PDF结构  ─┐
 
 ## ② 图片 PS / 图像取证 · `src/analyze_visual_forensics.py`
 
-**技术**：`pdftoppm` 把**第一页**渲染成 PNG（`render_pdf_first_page():29`，仅第 1 页），做三种经典像素取证：
+**技术**：`pdftoppm` 把前 N 页渲染成 PNG（`--max-pages`，默认 1，远程迭代脚本使用 3），逐页取证后合并原因、保留最大视觉风险，并记录最佳印章候选页码。
 
 1. **ELA（误差水平分析）** `ela_score():38`：以 JPEG q=85 **重压缩一次**，与原图求像素差均值。局部 PS 区域压缩历史不同 → 重压缩后误差突变。阈值 `≥7.0 → +20`。
 2. **分块噪声方差** `block_variance_score():48`：64×64 块算灰度标准差，再求**块间标准差的标准差**。拼接/编辑使局部噪声偏离整体。阈值 `≥22 → +15`。
@@ -53,9 +53,14 @@ PDF结构  ─┐
 
 ---
 
-## ③ 印章贴图 / 红章覆盖 · `src/analyze_visual_forensics.py` → `seal_overlay_features():83`
+## ③ 印章贴图 / 黑白复印章候选 · `src/analyze_visual_forensics.py`
 
-**技术**：红色像素分割 + **连通域分析**（自实现 4-邻域 flood-fill）。
+当前有两条互补管线：
+
+1. **红章贴图特征** `seal_overlay_features()`：红色像素分割 + 连通域分析。
+2. **颜色无关候选定位** `color_agnostic_seal_features()`：用于红章、灰度扫描章、淡章和复印章，不依赖 RGB 红色阈值。
+
+### 红章贴图特征
 
 - 红色掩膜：逐像素判 `r>120 且 r>1.45g 且 r>1.45b`（`:95`）。
 - 对掩膜连通域（≥20 像素）算 4 个特征：
@@ -69,7 +74,36 @@ PDF结构  ─┐
 
 **判据**（`analyze_image():192`）：`seal_hard_edge_overlay`（edge_contrast≥22 & ratio≥0.001，+12）、`seal_flat_color_overlay`（ratio∈[0.001,0.08] & color_std≤28，+8）、`red_stamp_like_region`（red_ratio≥0.012，+10）。
 
-**局限**：硬编码 RGB 阈值对偏色扫描脆弱（宜转 HSV）；纯 Python 逐像素双循环极慢（宜 `cv2.inRange`+`connectedComponentsWithStats`）。`red_stamp_like_region` 假 0% / 正常 2.4%（真章在正常件），方向反，v3 已中性化。
+### 颜色无关候选定位
+
+1. 以局部高斯背景减灰度图，得到暗色墨迹强度，适应偏黄纸张和低对比度扫描。
+2. 先剔除贯穿页面的表格横线/竖线，避免盖章与表格线相交后被合并成巨大矩形组件。
+3. 对剩余墨迹闭运算并做 8 邻域连通域，筛选尺寸合理、近圆/椭圆的候选框。
+4. 在候选框内计算椭圆环带密度、24 扇区角向覆盖、中心墨迹密度、边缘、纹理和高频/中间灰度启发特征。
+5. 用 HSV 饱和度把彩色章与黑白/复印章候选分流，并输出归一化坐标。
+6. 可通过 `--seal-crop-dir` 自动保存保留上下文的彩色裁剪和对比度增强 OCR 裁剪。
+
+### 印章 OCR 与主体勾稽
+
+`src/analyze_seal_ocr.py` 对最佳候选继续处理：
+
+1. 将候选外环从极坐标展开成矩形条带，使环形文字近似水平排列。
+2. 本地 Tesseract 分别识别 OCR 增强原图、极坐标条带和镜像条带，并聚合文本与置信度。
+3. 从业务字段 JSON 提取甲乙方、购销方、付款方、银行/机构名称等文档主体。
+4. 用归一化字符局部相似度比较印章 OCR 与文档主体，输出最佳匹配实体和相似度。
+5. `seal_ocr_entity_match_context` 表示一致性支持；`seal_ocr_entity_mismatch_review` 和 `seal_ocr_low_confidence_review` 只进入人工复核，当前均不增加 v3 风险分。
+
+该链路完全本地运行；未安装 Tesseract 时会稳定输出 `tesseract_not_found`，不会阻断其他检测器。多模态大模型可作为困难样本兜底，但真实金融材料外发前必须取得授权。
+
+可选的 `analyze_qwen_forensics.py` 也已扩展印章结构化输出：模型需返回归一化 bbox、颜色、可辨文字和贴图怀疑分；代码会严格校验坐标范围后写入 `qwen_fx_seal_candidates`。该通道用于困难样本兜底/弱标注，不替代本地候选定位。
+
+新增字段：`seal_candidate_best_score`、`seal_candidate_bbox_norm`、`seal_candidate_ring_density`、`seal_candidate_angular_coverage`、`seal_candidate_halftone_score`、`seal_candidate_is_monochrome`、`seal_candidate_ocr_path` 等。
+
+新增原因 `seal_color_agnostic_candidate / seal_monochrome_candidate / seal_candidate_hard_edge_review` 在 v3 中均为**中性定位/复核标签**，目前不增加文档风险分。
+
+**零 PII 合成定位基准（120 份）**：红章、灰章、复印章全部召回，淡章召回 95%；总体 Recall=0.9875、Precision=0.7980、F1=0.8827，检测成功样本平均 IoU=0.596。所有圆形 Logo 困难负样本也被召回，说明几何定位不能区分“印章 vs Logo”，必须接印章 OCR、机构主体勾稽与位置语义。
+
+**局限**：红章颜色与候选存在本身都不是造假证据；圆形 Logo 仍需依靠 OCR、主体和位置语义排除；多页模式目前只扫描前 N 页而非智能风险页抽样。`red_stamp_like_region` 在正常真章中会触发，v3 已中性化。
 
 ---
 

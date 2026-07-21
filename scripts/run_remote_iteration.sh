@@ -27,8 +27,17 @@ python3 "$ROOT/src/analyze_visual_forensics.py" \
   --out-csv "$ROOT/outputs/features/visual_forensics_features.csv" \
   --out-json "$ROOT/outputs/features/visual_forensics_summary.json" \
   --render-dir "$ROOT/outputs/visual_forensics" \
+  --seal-crop-dir "$ROOT/outputs/seal_candidates" \
   --dpi 110 \
+  --max-pages 3 \
   --max-normal-per-type 20
+
+python3 "$ROOT/src/analyze_seal_ocr.py" \
+  --visual-csv "$ROOT/outputs/features/visual_forensics_features.csv" \
+  --text-csv "$ROOT/outputs/features/text_business_features.csv" \
+  --out-csv "$ROOT/outputs/features/seal_ocr_features.csv" \
+  --out-json "$ROOT/outputs/features/seal_ocr_summary.json" \
+  --polar-dir "$ROOT/outputs/seal_candidates/polar"
 
 python3 "$ROOT/src/train_object_classifier.py" \
   --features-csv "$ROOT/outputs/features/pdf_object_features.csv" \
@@ -43,6 +52,7 @@ python3 "$ROOT/src/build_combined_risk.py" \
   --pdf-csv "$ROOT/outputs/features/pdf_object_features.csv" \
   --visual-csv "$ROOT/outputs/features/visual_forensics_features.csv" \
   --text-csv "$ROOT/outputs/features/text_business_features.csv" \
+  --seal-ocr-csv "$ROOT/outputs/features/seal_ocr_features.csv" \
   --out-csv "$ROOT/outputs/features/combined_risk_features.csv" \
   --out-json "$ROOT/outputs/features/combined_risk_summary.json"
 
