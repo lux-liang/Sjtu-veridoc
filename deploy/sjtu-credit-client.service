@@ -1,20 +1,30 @@
 [Unit]
 Description=SJTU VeriDoc Client Credit Report Dashboard
-After=network.target sjtu-material-visual.service
-Requires=sjtu-material-visual.service
+After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=/home/lighthouse/sjtu_credit_client
 Environment=HOST=0.0.0.0
 Environment=PORT=3003
-Environment=VERIDOC_ORIGIN=http://127.0.0.1:3002
 Environment=CREDIT_RULE_RESULTS=/home/lighthouse/sjtu_credit_client/data/credit_rule_results.json
+Environment=ALLOW_PDF_PREVIEW=0
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 /home/lighthouse/sjtu_credit_client/server.py
 Restart=always
 RestartSec=3
 User=lighthouse
 Group=lighthouse
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

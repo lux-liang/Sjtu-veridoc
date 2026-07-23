@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import csv
+import gzip
 import json
 import subprocess
 import tempfile
@@ -22,8 +23,28 @@ DEFAULT_WEIGHTS = {
 def read_csv(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    text = path.read_text(encoding="utf-8", errors="replace").replace("\x00", "")
-    return list(csv.DictReader(text.splitlines()))
+    csv.field_size_limit(16 * 1024 * 1024)
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as stream:
+        clean_lines = (line.replace("\x00", "") for line in stream)
+        return list(csv.DictReader(clean_lines))
+
+
+def private_ocr_text(row: dict, feature_dir: Path) -> str:
+    relative_file = str(row.get("ocr_text_file") or "").strip()
+    if relative_file:
+        root = (feature_dir / "ocr_deepseek_features_text").resolve()
+        target = (root / relative_file).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            target = Path()
+        if target.is_file():
+            try:
+                with gzip.open(target, "rt", encoding="utf-8", errors="replace") as stream:
+                    return stream.read()
+            except (OSError, EOFError):
+                pass
+    return str(row.get("ocr_text_preview") or "")
 
 
 def as_float(value: Any) -> float:
@@ -64,7 +85,7 @@ class IntegratedDetector:
         if not pdf and not text and not ocr:
             raise KeyError(f"document_id not found: {document_id}")
         doc_type = pdf.get("doc_type") or text.get("doc_type") or ocr.get("doc_type") or "other"
-        ocr_text = ocr.get("ocr_text_preview") or ""
+        ocr_text = private_ocr_text(ocr, self.feature_dir)
         fields = {}
         for raw in [text.get("extracted_fields_json"), ocr.get("ocr_fields_json")]:
             if raw:

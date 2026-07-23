@@ -3,70 +3,193 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>明鉴 · 征信报告智能核验平台</title>
-    <script>(function(){try{var t=localStorage.getItem("veridoc-client-theme");if(t!=="dark"&&t!=="light")t=(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=t}catch(e){}})();</script>
-    <link rel="stylesheet" href="/styles.css?v=20260723-v1" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <title>明鉴 · 征信报告专项核验</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("veridoc-client-theme");
+          if (theme !== "dark" && theme !== "light") {
+            theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (error) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles.css?v=20260723-v2" />
   </head>
   <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
     <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3.5v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6L12 2z"/><path d="M9 12l2 2 4-4"/></svg></span>
-        <div><p class="eyebrow">SJTU · VeriDoc</p><h1>明鉴 · 征信报告智能核验平台</h1></div>
+      <div class="brand" aria-label="明鉴征信报告专项核验">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2l8 3.5v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6L12 2z"/><path d="M9 12l2 2 4-4"/></svg>
+        </span>
+        <div>
+          <p>征信报告专项</p>
+          <h1>明鉴 · 报告核验结果</h1>
+        </div>
       </div>
-      <nav class="tabs" aria-label="页面导航">
-        <button class="tab active" data-view="overview"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8M5 10v10h14V10M9 20v-6h6v6"/></svg>专项总览</button>
-        <button class="tab" data-view="documents"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h10M17 16l3 3-3 3"/></svg>报告核查</button>
-        <button class="tab" data-view="scope"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>核验范围</button>
+
+      <nav class="tabs" aria-label="页面导航" role="tablist">
+        <button id="tab-overview" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="view-overview" data-view="overview">批次总览</button>
+        <button id="tab-documents" class="tab" type="button" role="tab" aria-selected="false" aria-controls="view-documents" data-view="documents">报告清单</button>
+        <button id="tab-scope" class="tab" type="button" role="tab" aria-selected="false" aria-controls="view-scope" data-view="scope">核验范围</button>
       </nav>
-      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="切换主题"></button>
-      <div class="status"><span id="service-dot"></span><span>征信专项 · 服务在线</span></div>
+
+      <div class="top-actions">
+        <button id="theme-toggle" class="icon-button" type="button" aria-label="切换深浅主题" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+        </button>
+        <div id="service-status" class="service-status" role="status" aria-live="polite">
+          <span id="service-dot" aria-hidden="true"></span>
+          <span id="service-text">正在连接核验结果</span>
+        </div>
+      </div>
     </header>
 
-    <main>
-      <section class="view active" id="view-overview">
-        <section class="command-hero">
-          <div class="hero-copy">
-            <div class="hero-kicker"><span class="live-pulse"></span>CREDIT REPORT VERIFICATION</div>
-            <h2>聚焦征信报告，形成<br><em>清晰、可复核的核验结果。</em></h2>
-            <p>围绕报告编号与时间、文档属性、个人身份、账户与违约信息、法人主体信息等项目，对征信报告进行专项核验。</p>
-            <div class="hero-actions"><button class="hero-button primary" data-jump-view="documents">进入报告核查 <span>→</span></button><button class="hero-button" data-jump-view="scope">查看核验范围</button></div>
-            <div class="hero-capabilities"><span>报告信息</span><span>时间逻辑</span><span>PDF 属性</span><span>账户勾稽</span><span>法人信息</span></div>
+    <main id="main-content">
+      <section id="view-overview" class="view active" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+        <section class="batch-hero panel-dark">
+          <div class="batch-copy">
+            <p class="section-kicker">本批次征信报告</p>
+            <h2>核验结论与待确认事项分开展示</h2>
+            <p>结果逐项对应《征信报告造假识别规则》。规则异常和有造假可能均需结合原件复核，不作为最终定性结论。</p>
+            <div class="hero-actions">
+              <button class="button primary" type="button" data-jump-view="documents">查看报告清单</button>
+              <button class="button subtle" type="button" data-retry="dashboard">刷新本批次结果</button>
+            </div>
           </div>
-          <aside class="hero-console">
-            <div class="console-head"><div><span>SYSTEM SNAPSHOT</span><strong>征信核验服务</strong></div><b><i></i>运行中</b></div>
-            <div class="console-focus"><div><span>已纳入核验</span><strong id="hero-total">—</strong><small>当前征信专项报告</small></div><div class="console-ring"><span id="hero-exception">—</span><small>规则异常</small></div></div>
-            <div class="pipeline"><span><i></i>材料读取</span><b></b><span><i></i>规则核验</span><b></b><span><i></i>结果归集</span></div>
-            <div class="console-foot"><span>数据已与核验服务连接</span><time id="updated-at">等待刷新</time></div>
-          </aside>
+          <dl class="batch-facts">
+            <div><dt>纳入报告</dt><dd id="hero-total">—</dd></div>
+            <div><dt>需关注报告</dt><dd id="hero-attention">—</dd></div>
+            <div><dt>专项规则</dt><dd id="hero-rule-count">—</dd></div>
+            <div class="batch-time"><dt>结果生成时间</dt><dd id="generated-at">等待加载</dd></div>
+          </dl>
         </section>
 
-        <div class="overview-heading"><div><span>OVERVIEW</span><h2>征信报告核验概览</h2></div><p>点击指标卡进入对应报告队列</p></div>
-        <section class="metrics" id="metrics"></section>
-        <section class="grid two">
-          <article class="panel"><div class="panel-head"><div><h2>核验规则结论分布</h2><span>异常、可能异常、待人工与自动项通过分开展示</span></div></div><div id="risk-bars" class="bars loading">正在加载…</div></article>
-          <article class="panel"><div class="panel-head"><div><h2>主要规则偏离</h2><span>仅统计Word规则明确异常或“有造假可能”</span></div></div><div id="reason-list" class="reason-list loading">正在加载…</div></article>
+        <div id="dashboard-error" class="state-card error-state" role="alert" hidden>
+          <strong>本批次结果暂时无法加载</strong>
+          <p>请检查网络连接后重试。</p>
+          <button class="button secondary" type="button" data-retry="dashboard">重新加载</button>
+        </div>
+
+        <section aria-labelledby="conclusion-heading">
+          <div class="section-heading">
+            <div><p class="section-kicker">报告结论</p><h2 id="conclusion-heading">本批次报告结论</h2></div>
+            <p>结论与人工复核要求分别统计</p>
+          </div>
+          <div id="conclusion-metrics" class="metric-grid" aria-live="polite">
+            <div class="skeleton metric-skeleton"></div><div class="skeleton metric-skeleton"></div><div class="skeleton metric-skeleton"></div><div class="skeleton metric-skeleton"></div><div class="skeleton metric-skeleton"></div>
+          </div>
+          <div id="review-summary" class="review-summary skeleton" aria-live="polite">正在汇总待人工确认事项…</div>
         </section>
-        <section class="panel recent-panel"><div class="panel-head"><div><h2>规则异常与可能异常</h2><span>每项结论均对应核验规则编号，不使用综合评分</span></div><button class="text-button" data-jump-view="documents">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>报告编号</th><th>总体结论</th><th>规则统计</th><th>主要规则结果</th><th>操作</th></tr></thead><tbody id="priority-rows"></tbody></table></div></section>
+
+        <section class="dashboard-grid">
+          <article class="panel" aria-labelledby="rule-stat-heading">
+            <div class="panel-heading">
+              <div><h2 id="rule-stat-heading">规则项统计</h2><p>按规则项展示异常、可能、待确认、通过与不适用</p></div>
+            </div>
+            <div id="rule-stat-bars" class="stat-bars" aria-live="polite"><div class="skeleton block-skeleton"></div></div>
+          </article>
+
+          <article class="panel" aria-labelledby="material-heading">
+            <div class="panel-heading">
+              <div><h2 id="material-heading">材料构成</h2><p>报告形态和版本会影响适用的核验规则</p></div>
+            </div>
+            <div id="material-summary" class="material-summary" aria-live="polite"><div class="skeleton block-skeleton"></div></div>
+          </article>
+        </section>
+
+        <section class="dashboard-grid lower-grid">
+          <article class="panel" aria-labelledby="finding-heading">
+            <div class="panel-heading">
+              <div><h2 id="finding-heading">主要规则偏离</h2><p>点击规则可查看对应报告</p></div>
+            </div>
+            <div id="finding-list" class="finding-list" aria-live="polite"><div class="skeleton block-skeleton"></div></div>
+          </article>
+
+          <article class="panel" aria-labelledby="attention-heading">
+            <div class="panel-heading compact">
+              <div><h2 id="attention-heading">异常与可能异常</h2><p>规则异常与有造假可能的报告</p></div>
+              <button class="text-button" type="button" data-jump-view="documents">查看全部</button>
+            </div>
+            <div id="attention-list" class="attention-list" aria-live="polite"><div class="skeleton block-skeleton"></div></div>
+          </article>
+        </section>
       </section>
 
-      <section class="view" id="view-documents">
-        <section class="panel document-panel"><div class="panel-head stacked"><div><h2>征信报告核查</h2><span id="document-count">—</span></div><div class="filters"><input id="search-filter" type="search" placeholder="搜索报告编号或规则结果"/><select id="risk-filter"><option value="">全部结论</option><option value="fail">规则异常</option><option value="possible">有造假可能</option><option value="manual">待人工核验</option><option value="pass">自动项通过</option></select></div></div><div class="table-wrap document-table"><table><thead><tr><th>报告编号</th><th>报告版本</th><th>总体结论</th><th>规则统计</th><th>主要规则结果</th><th>原件</th><th>操作</th></tr></thead><tbody id="document-rows"></tbody></table></div></section>
+      <section id="view-documents" class="view" role="tabpanel" aria-labelledby="tab-documents" tabindex="0" hidden>
+        <div class="page-heading">
+          <div><p class="section-kicker">报告清单</p><h2>逐份查看核验结果</h2><p>可按结论、报告版本、材料形态和人工复核要求筛选。</p></div>
+          <button class="button secondary" type="button" data-retry="documents">刷新清单</button>
+        </div>
+
+        <section class="panel filter-panel" aria-labelledby="filter-heading">
+          <h3 id="filter-heading" class="sr-only">筛选报告</h3>
+          <form id="filter-form" class="filter-grid">
+            <label class="field search-field"><span>搜索</span><input id="search-filter" name="search" type="search" autocomplete="off" placeholder="核验编号、规则编号或规则结果" /></label>
+            <label class="field"><span>报告结论</span><select id="conclusion-filter" name="conclusion"><option value="">全部结论</option><option value="fail">规则异常</option><option value="possible">有造假可能</option><option value="no_automatic_anomaly">自动项未见异常</option><option value="undetermined">尚待材料确认</option></select></label>
+            <label class="field"><span>材料形态</span><select id="format-filter" name="source_format"><option value="">全部形态</option><option value="original_electronic">原始/电子 PDF</option><option value="scanned_or_image">扫描或图片版</option><option value="unknown">形态待确认</option></select></label>
+            <label class="field"><span>报告版本</span><select id="variant-filter" name="report_variant"><option value="">全部版本</option><option value="online_personal">网银查询版个人征信</option><option value="scanned_online_personal">网银个人征信扫描件</option><option value="pboc_print_personal">人行打印版个人征信</option><option value="online_enterprise">网银查询版法人征信</option><option value="leasing_enterprise">租赁公司查询版法人征信</option><option value="scanned_enterprise">法人征信扫描件</option><option value="unknown">版本待确认</option></select></label>
+            <label class="field"><span>人工复核</span><select id="review-filter" name="review"><option value="">全部状态</option><option value="required">存在待人工项</option><option value="not_required">无需人工复核</option></select></label>
+            <label class="field page-size-field"><span>每页</span><select id="page-size" name="page_size"><option value="25">25 份</option><option value="50">50 份</option><option value="100">100 份</option></select></label>
+            <button id="reset-filters" class="button secondary reset-button" type="button">重置筛选</button>
+          </form>
+        </section>
+
+        <section class="panel results-panel" aria-labelledby="result-heading">
+          <div class="results-heading">
+            <div><h2 id="result-heading">核验结果</h2><p id="document-count" role="status" aria-live="polite">等待加载</p></div>
+            <div id="active-filters" class="active-filters" aria-label="当前筛选条件"></div>
+          </div>
+
+          <div id="document-state" class="document-state" aria-live="polite">
+            <div class="skeleton table-skeleton"></div>
+          </div>
+
+          <div id="document-table-wrap" class="table-wrap" tabindex="0" aria-label="征信报告核验结果表" hidden>
+            <table>
+              <caption class="sr-only">征信报告核验结果</caption>
+              <thead><tr><th scope="col">核验编号</th><th scope="col">报告版本</th><th scope="col">报告结论</th><th scope="col">人工复核</th><th scope="col">规则项统计</th><th scope="col">主要规则结果</th><th scope="col">操作</th></tr></thead>
+              <tbody id="document-rows"></tbody>
+            </table>
+          </div>
+          <div id="document-cards" class="document-cards" hidden></div>
+          <nav id="pagination" class="pagination" aria-label="报告清单分页" hidden></nav>
+        </section>
       </section>
 
-      <section class="view" id="view-scope">
-        <section class="panel scope-intro"><p class="eyebrow">VERIFICATION SCOPE</p><h2>征信报告专项核验范围</h2><p>逐条对应《征信报告造假识别(1)》规则。系统只在证据完整时标记异常；需要结合原件或辅助资料确认的项目显示“待人工核验”。</p></section>
-        <section class="scope-grid">
-          <article class="scope-card"><span>01</span><div><h3>通用校验</h3><p>报告编号与报告时间、报告内日期、水印位置与完整性、字体字号及行间距一致性。</p></div></article>
-          <article class="scope-card"><span>02</span><div><h3>原始 PDF 版</h3><p>创建与修改时间、PDF 制作者及版本、字体属性，以及报告时间与文件创建时间关系。</p></div></article>
-          <article class="scope-card"><span>03</span><div><h3>网银版个人征信</h3><p>信息概要中的各类账户数与信用卡、贷款及逾期明细笔数进行对应核验。</p></div></article>
-          <article class="scope-card"><span>04</span><div><h3>人行打印版个人征信</h3><p>证件与出生日期、违约信息概要、还款记录、账户数及授信负债金额交叉核验。</p></div></article>
-          <article class="scope-card wide"><span>05</span><div><h3>法人征信</h3><p>工商信息、企业名称、中征码、统一社会信用代码，以及负面信息、公共记录、关注类与不良类账户及余额的一致性核验。</p></div></article>
+      <section id="view-scope" class="view" role="tabpanel" aria-labelledby="tab-scope" tabindex="0" hidden>
+        <section class="scope-heading panel">
+          <p class="section-kicker">核验范围</p>
+          <h2>征信报告专项核验项目</h2>
+          <p>本批次对应 <strong id="scope-rule-count">—</strong> 项专项规则。每份报告仅执行与其报告版本和材料形态相适用的项目；证据条件不足的项目明确标记为待人工确认。</p>
         </section>
-        <section class="panel boundary"><strong>结果说明</strong><p>系统逐项呈现核验结果与待确认事项，不替代人民银行征信中心、工商登记机关或其他权威渠道的最终核验结果。</p></section>
+        <section class="scope-grid" aria-label="征信报告核验规则分类">
+          <article class="scope-card"><span aria-hidden="true">01</span><div><h3>通用校验</h3><p>报告编号与时间、报告内日期、水印完整性，以及字体、字号和行间距一致性。</p></div></article>
+          <article class="scope-card"><span aria-hidden="true">02</span><div><h3>原始 PDF 版</h3><p>文件创建与修改时间、制作者、版本和字体属性，以及报告时间与文件创建时间关系。</p></div></article>
+          <article class="scope-card"><span aria-hidden="true">03</span><div><h3>网银版个人征信</h3><p>信息概要中的账户和逾期数量与相关明细进行对应核验。</p></div></article>
+          <article class="scope-card"><span aria-hidden="true">04</span><div><h3>人行打印版个人征信</h3><p>证件与出生日期、违约概要、还款记录、账户数量和授信负债金额交叉核验。</p></div></article>
+          <article class="scope-card wide"><span aria-hidden="true">05</span><div><h3>法人征信</h3><p>企业主体信息，以及负面信息、公共记录、关注类与不良类账户和余额的一致性核验。</p></div></article>
+        </section>
+        <section class="boundary panel"><strong>结果边界</strong><p>平台呈现规则核验结果和待确认事项，不替代人民银行征信中心、工商登记机关或其他权威渠道的最终核验结论。</p></section>
       </section>
     </main>
 
-    <div class="drawer" id="detail-drawer" aria-hidden="true"><div class="drawer-mask" data-close-drawer></div><aside class="drawer-card"><button class="close" data-close-drawer>×</button><div id="drawer-content"></div></aside></div>
-    <script src="/app.js?v=20260723-v1"></script>
+    <div id="detail-drawer" class="drawer" aria-hidden="true" hidden>
+      <div class="drawer-mask" data-close-drawer aria-hidden="true"></div>
+      <aside class="drawer-card" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1">
+        <div class="drawer-toolbar">
+          <button id="print-detail" class="button secondary" type="button" hidden>打印结果</button>
+          <button class="close-button" type="button" data-close-drawer aria-label="关闭核验结果">×</button>
+        </div>
+        <div id="drawer-content" aria-live="polite"></div>
+      </aside>
+    </div>
+
+    <div id="global-announcer" class="sr-only" aria-live="polite"></div>
+    <script src="/app.js?v=20260723-v2"></script>
   </body>
 </html>

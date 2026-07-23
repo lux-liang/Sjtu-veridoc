@@ -54,6 +54,34 @@ python3 scripts/audit_feature_alignment.py --base-csv outputs/features/pdf_objec
 python3 src/build_combined_risk.py --pdf-csv ... --visual-csv ... --text-csv ... --seal-ocr-csv outputs/features/seal_ocr_features.csv --scoring-version v3 --out-csv outputs/features/combined_risk_features.csv --out-json outputs/features/combined_risk_summary.json
 ```
 
+### OCR 与 API Key
+
+- 征信报告主链路默认使用本地 `pdftotext`（原始电子 PDF）和 Tesseract（扫描或图片版），不需要任何云端 API Key。
+- `src/analyze_ocr_deepseek.py` 虽保留了历史文件名，但 DeepSeek 只是显式传入 `--use-deepseek --confirm-external-data-transfer` 后才启用的可选增强；启用时才需要 `DEEPSEEK_API_KEY`。
+- 千问视觉脚本是独立实验通道，需要 `DASHSCOPE_API_KEY` 或 `QWEN_API_KEY`，不属于当前甲方征信报告严格规则链路。
+- 当前代码未接入豆包 Seed/ARK OCR，因此不需要豆包或 Seed API Key。真实征信内容不得在未获明确授权时发送给任何第三方模型。
+
+征信专项批处理建议使用本地链路；扫描件需要处理完整页，原始电子 PDF 则由严格分析器优先读取原生文本层：
+
+```bash
+python3 src/analyze_ocr_deepseek.py \
+  --manifest outputs/manifest.csv \
+  --out-csv outputs/features/ocr_deepseek_features.csv \
+  --out-json outputs/features/ocr_deepseek_summary.json \
+  --out-words-csv outputs/features/ocr_word_coordinates.csv.gz \
+  --credit-max-pages 0 \
+  --workers 4
+
+python3 src/analyze_credit_report_strict.py \
+  --combined-csv outputs/features/combined_risk_features.csv \
+  --ocr-csv outputs/features/ocr_deepseek_features.csv \
+  --object-csv outputs/features/pdf_object_features.csv \
+  --data-root data/prepared \
+  --output outputs/features/credit_rule_results.json
+```
+
+以上命令均不启用云模型。`--credit-max-pages 0` 表示扫描件在 200 页安全上限内处理完整报告；`--workers` 可在 1–4 之间并行运行本地 OCR，启用 DeepSeek 时则强制为 1。渲染页默认逐页删除，只保留权限受限的压缩 OCR 文本和坐标结果。
+
 ## 评测基准（可复现）
 
 - `src/make_semantic_tamper.py` — 同源**语义**篡改基准（改金额破坏勾稽），验证业务逻辑检测。
