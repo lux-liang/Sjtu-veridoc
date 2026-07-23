@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import re
+from datetime import date
 from dataclasses import dataclass, field
 from typing import Any
 
 
 AMOUNT_RE = re.compile(r"(?:CNY|RMB|¥)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
-DATE_RE = re.compile(r"(20[0-9]{2})[-/.年](0?[1-9]|1[0-2])[-/.月](0?[1-9]|[12][0-9]|3[01])日?")
+DATE_RE = re.compile(r"((?:19|20)[0-9]{2})[-/.年](0?[1-9]|1[0-2])[-/.月](3[01]|[12][0-9]|0?[1-9])日?")
 ID_RE = re.compile(r"\b[0-9]{17}[0-9Xx]\b|\b[0-9]{15}\b")
 ACCOUNT_RE = re.compile(r"\b[0-9]{12,24}\b")
 TAX_ID_RE = re.compile(r"\b[0-9A-Z]{15,20}\b")
@@ -51,6 +52,42 @@ def normalize_dates(text: str) -> list[str]:
     return dates
 
 
+def _parse_iso_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _credit_report_fields(text: str, fields: dict[str, Any]) -> None:
+    """Extract the stable, text-visible credit-report fields used by the rules.
+
+    This deliberately does not infer a result from missing OCR text: a scan may
+    be perfectly legitimate.  Rules which need page pixels, fonts, or an
+    external enterprise registry are exposed as review items by the UI/service.
+    """
+    report_number = re.search(r"(?:报告编号|报告号码|Report\s*(?:No\.?|Number))\s*[:：#]?\s*([A-Za-z0-9]{14,})", text, re.I)
+    report_date = re.search(
+        r"(?:报告时间|报告日期|查询时间|Report\s*Date)\s*[:：]?\s*(20[0-9]{2}[-/.年](?:0?[1-9]|1[0-2])[-/.月](?:3[01]|[12][0-9]|0?[1-9])日?)",
+        text,
+        re.I,
+    )
+    birth_date = re.search(r"(?:出生日期|出生年月日|Birth\s*Date)\s*[:：]?\s*(?:20[0-9]{2}|19[0-9]{2})[-/.年](?:0?[1-9]|1[0-2])[-/.月](?:3[01]|[12][0-9]|0?[1-9])日?", text, re.I)
+    fields["credit_report_number"] = report_number.group(1) if report_number else ""
+    fields["credit_report_date"] = normalize_dates(report_date.group(1))[:1] if report_date else []
+    fields["birth_date"] = normalize_dates(birth_date.group(0))[:1] if birth_date else []
+
+
+def _id_birth_date(id_number: str) -> str | None:
+    if re.fullmatch(r"\d{17}[\dXx]", id_number or ""):
+        raw = id_number[6:14]
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+    if re.fullmatch(r"\d{15}", id_number or ""):
+        raw = id_number[6:12]
+        return f"19{raw[:2]}-{raw[2:4]}-{raw[4:6]}"
+    return None
+
+
 def extract_fields(text: str, base_fields: dict[str, Any] | None = None) -> dict[str, Any]:
     fields = dict(base_fields or {})
     fields.setdefault("amounts", parse_amounts(text))
@@ -60,6 +97,7 @@ def extract_fields(text: str, base_fields: dict[str, Any] | None = None) -> dict
     fields.setdefault("tax_ids", TAX_ID_RE.findall(text or ""))
     fields.setdefault("invoice_numbers", INVOICE_NO_RE.findall(text or "")[:10])
     fields.setdefault("chinese_amounts", CN_AMOUNT_RE.findall(text or "")[:10])
+    _credit_report_fields(text or "", fields)
     return fields
 
 
@@ -133,12 +171,31 @@ class BusinessLogicDetector:
 
     def _credit_report_rules(self, fields: dict[str, Any]) -> list[BusinessRuleFinding]:
         findings = []
-        if not fields.get("id_numbers"):
-            findings.append(BusinessRuleFinding("credit_report_id_missing", 8, "征信报告未识别到身份证号候选", {}))
-        if not fields.get("dates"):
-            findings.append(BusinessRuleFinding("credit_report_date_missing", 8, "征信报告未识别到报告日期", {}))
-        if len(fields.get("amounts", [])) < 3:
-            findings.append(BusinessRuleFinding("credit_report_numeric_summary_sparse", 5, "征信报告数值字段偏少，建议复核 OCR 质量", {"amount_count": len(fields.get("amounts", []))}))
+        report_number = str(fields.get("credit_report_number") or "")
+        report_dates = fields.get("credit_report_date") or []
+        report_date = report_dates[0] if report_dates else None
+        # Rule 1: the first 14 digits of the report number encode YYYYMMDDHHMMSS.
+        if report_number and report_date and re.fullmatch(r"\d{14}.*", report_number):
+            number_day = f"{report_number[:4]}-{report_number[4:6]}-{report_number[6:8]}"
+            if number_day != report_date:
+                findings.append(BusinessRuleFinding("credit_report_number_date_mismatch", 35, "报告编号前 14 位中的日期与报告时间不一致", {"report_number": report_number[:14], "report_date": report_date}))
+        # Rule 2: no document date may be later than its report date.
+        if report_date:
+            end = _parse_iso_date(report_date)
+            later = [item for item in fields.get("dates", []) if _parse_iso_date(item) and end and _parse_iso_date(item) > end]
+            if later:
+                findings.append(BusinessRuleFinding("credit_report_future_date", 35, "报告中存在晚于报告时间的日期", {"report_date": report_date, "later_dates": later[:5]}))
+        # 人行打印版规则：身份证出生日期与页面出生日期必须一致。
+        birth_dates = fields.get("birth_date") or []
+        id_births = [value for value in (_id_birth_date(item) for item in fields.get("id_numbers", [])) if value]
+        if birth_dates and id_births and birth_dates[0] not in id_births:
+            findings.append(BusinessRuleFinding("credit_report_id_birth_date_mismatch", 35, "证件号码推导的出生日期与报告载明出生日期不一致", {"id_birth_dates": id_births, "reported_birth_date": birth_dates[0]}))
+        # 原始 PDF 规则：报告时间不得晚于文件创建时间（由调用方传入元数据）。
+        creation = fields.get("pdf_creation_date")
+        if report_date and creation:
+            creation_date = normalize_dates(str(creation))
+            if creation_date and _parse_iso_date(report_date) and _parse_iso_date(report_date) > _parse_iso_date(creation_date[0]):
+                findings.append(BusinessRuleFinding("credit_report_report_after_pdf_creation", 35, "报告时间晚于 PDF 文件创建时间", {"report_date": report_date, "pdf_creation_date": creation_date[0]}))
         return findings
 
     def _settlement_rules(self, fields: dict[str, Any]) -> list[BusinessRuleFinding]:
