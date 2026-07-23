@@ -9,6 +9,7 @@ WorkingDirectory=/home/lighthouse/sjtu_credit_client
 Environment=HOST=0.0.0.0
 Environment=PORT=3003
 Environment=VERIDOC_ORIGIN=http://127.0.0.1:3002
+Environment=CREDIT_RULE_RESULTS=/home/lighthouse/sjtu_credit_client/data/credit_rule_results.json
 ExecStart=/usr/bin/python3 /home/lighthouse/sjtu_credit_client/server.py
 Restart=always
 RestartSec=3

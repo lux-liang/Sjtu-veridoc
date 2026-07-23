@@ -6,8 +6,9 @@ import hashlib
 import json
 import mimetypes
 import os
-import re
 import shutil
+import threading
+import time
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,97 +17,99 @@ from urllib import error, parse, request
 
 WEB_ROOT = Path(__file__).resolve().parent
 ORIGIN = os.environ.get("VERIDOC_ORIGIN", "http://127.0.0.1:3002").rstrip("/")
-
-EVIDENCE_RULES = [
-    (re.compile(r"credit_report_number_date_mismatch|report.*date.*mismatch", re.I), "报告编号与报告时间不一致"),
-    (re.compile(r"future_date|report_after_pdf_creation", re.I), "报告时间或日期逻辑需要复核"),
-    (re.compile(r"credit_report_id_missing|ocr_credit_id_missing|birth_date", re.I), "身份信息完整性需要复核"),
-    (re.compile(r"credit_report_date_missing", re.I), "报告时间信息需要复核"),
-    (re.compile(r"producer|creator|pdf_version|incremental|embedded_script|xref|smask", re.I), "PDF 文档属性或结构需要复核"),
-    (re.compile(r"font|text_layer|sparse_text|duplicated_text|repetition", re.I), "字体、文本层或版式一致性需要复核"),
-    (re.compile(r"watermark|seal", re.I), "水印或页面标识一致性需要复核"),
-    (re.compile(r"noise|edge|overlay|paste|image", re.I), "页面局部内容一致性需要复核"),
-    (re.compile(r"account|overdue|default|liability|balance", re.I), "账户、违约或负债信息需要复核"),
-    (re.compile(r"company|enterprise|social_credit|public_record", re.I), "法人主体或公共记录需要复核"),
-]
+RESULTS_PATH = Path(os.environ.get("CREDIT_RULE_RESULTS", str(WEB_ROOT / "data" / "credit_rule_results.json")))
+PUBLIC_STATUSES = ("fail", "possible", "manual", "pass")
+_cache_lock = threading.Lock()
+_cache_mtime = -1.0
+_cache_payload: dict | None = None
 
 
-def origin_json(path: str) -> dict:
-    with request.urlopen(ORIGIN + path, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def risk_score(row: dict) -> int:
-    value = row.get("combined_risk_score", row.get("object_risk_score", 0))
-    try:
-        return max(0, min(100, int(round(float(value or 0)))))
-    except (TypeError, ValueError):
-        return 0
-
-
-def risk_status(score: int) -> str:
-    if score >= 25:
-        return "priority"
-    if score >= 15:
-        return "review"
-    return "routine"
-
-
-def public_evidence(raw_reasons: str) -> list[str]:
-    results: list[str] = []
-    for raw in filter(None, re.split(r"[|,]", raw_reasons or "")):
-        if "marker" in raw.lower():
-            continue
-        label = next((label for pattern, label in EVIDENCE_RULES if pattern.search(raw)), "材料信息需要人工复核")
-        if label not in results:
-            results.append(label)
-    return results[:5]
-
-
-def public_document_id(document_id: str) -> str:
-    digest = hashlib.sha256(document_id.encode("utf-8")).hexdigest()[:10].upper()
+def public_document_id(source_id: str) -> str:
+    digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:10].upper()
     return f"CR-{digest}"
 
 
-def sanitize_row(row: dict) -> dict:
-    score = risk_score(row)
-    reasons = row.get("combined_risk_reasons") or row.get("object_risk_reasons") or ""
-    source_id = str(row.get("document_id") or "")
-    document_id = public_document_id(source_id)
+def load_results() -> dict:
+    global _cache_mtime, _cache_payload
+    stat = RESULTS_PATH.stat()
+    with _cache_lock:
+        if _cache_payload is None or stat.st_mtime != _cache_mtime:
+            payload = json.loads(RESULTS_PATH.read_text(encoding="utf-8"))
+            if payload.get("schema_version") != "credit-word-rules-v1":
+                raise ValueError("unsupported credit-rule schema")
+            _cache_payload = payload
+            _cache_mtime = stat.st_mtime
+        return _cache_payload
+
+
+def public_rule(item: dict) -> dict:
     return {
-        "document_id": document_id,
-        "doc_type": "credit_report",
-        "risk_score": score,
-        "status": risk_status(score),
-        "evidence": public_evidence(str(reasons)),
-        "pdf_url": f"/api/pdf/{parse.quote(document_id)}" if row.get("pdf_url") else "",
+        "rule_id": str(item.get("rule_id") or ""),
+        "title": str(item.get("title") or ""),
+        "status": str(item.get("status") or "manual"),
+        "message": str(item.get("message") or ""),
+        "word_level": str(item.get("word_level") or ""),
+        "mode": str(item.get("mode") or ""),
     }
 
 
-def raw_credit_rows() -> list[dict]:
-    payload = origin_json("/api/documents?doc_type=credit_report&limit=2000")
-    return [row for row in payload.get("rows", []) if row.get("doc_type") == "credit_report"]
+def public_row(document: dict) -> dict:
+    source_id = str(document.get("source_id") or "")
+    document_id = public_document_id(source_id)
+    counts = document.get("rule_counts") or {}
+    rules = [public_rule(item) for item in document.get("rule_results", [])]
+    findings = [item for item in rules if item["status"] in {"fail", "possible", "manual"}]
+    return {
+        "document_id": document_id,
+        "doc_type": "credit_report",
+        "report_variant": str(document.get("report_variant") or "unknown"),
+        "source_format": str(document.get("source_format") or "unknown"),
+        "overall_status": str(document.get("overall_status") or "manual"),
+        "rule_counts": {key: int(counts.get(key, 0) or 0) for key in ("fail", "possible", "manual", "pass", "not_applicable")},
+        "findings": findings[:8],
+        "rule_results": rules,
+        "pdf_url": f"/api/pdf/{parse.quote(document_id)}" if document.get("has_pdf") else "",
+    }
 
 
-def credit_rows() -> list[dict]:
-    rows = [sanitize_row(row) for row in raw_credit_rows()]
-    return sorted(rows, key=lambda row: (-row["risk_score"], row["document_id"]))
+def documents() -> list[dict]:
+    rows = [public_row(item) for item in load_results().get("documents", [])]
+    order = {"fail": 0, "possible": 1, "manual": 2, "pass": 3}
+    return sorted(rows, key=lambda row: (order.get(row["overall_status"], 9), -row["rule_counts"]["fail"], -row["rule_counts"]["possible"], row["document_id"]))
+
+
+def source_id_for_public(document_id: str) -> str | None:
+    for item in load_results().get("documents", []):
+        source_id = str(item.get("source_id") or "")
+        if public_document_id(source_id) == document_id and item.get("has_pdf"):
+            return source_id
+    return None
 
 
 def dashboard_payload(rows: list[dict]) -> dict:
-    status_counts = Counter(row["status"] for row in rows)
-    evidence_counts = Counter(item for row in rows for item in row["evidence"])
+    status_counts = Counter(row["overall_status"] for row in rows)
+    finding_counts = Counter(
+        (item["rule_id"], item["title"], item["status"])
+        for row in rows for item in row["findings"] if item["status"] in {"fail", "possible"}
+    )
+    queue = [row for row in rows if row["overall_status"] in {"fail", "possible"}]
+    meta = load_results()
     return {
         "total": len(rows),
-        "status_counts": {key: status_counts.get(key, 0) for key in ("priority", "review", "routine")},
-        "top_evidence": [{"label": label, "count": count} for label, count in evidence_counts.most_common(6)],
-        "priority_rows": [row for row in rows if row["status"] == "priority"][:12],
-        "scope": "credit_report_only",
+        "status_counts": {key: status_counts.get(key, 0) for key in PUBLIC_STATUSES},
+        "top_findings": [
+            {"rule_id": key[0], "label": key[1], "status": key[2], "count": count}
+            for key, count in finding_counts.most_common(8)
+        ],
+        "attention_rows": queue[:12],
+        "scope": "credit_report_word_rules_only",
+        "schema_version": meta.get("schema_version"),
+        "generated_at": meta.get("generated_at"),
     }
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "VeriDocCreditClient/1.0"
+    server_version = "VeriDocCreditClient/2.0"
 
     def log_message(self, fmt: str, *args) -> None:
         print(f'{self.address_string()} - {fmt % args}', flush=True)
@@ -120,14 +123,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def send_static(self, path: str) -> None:
+    def static_target(self, path: str) -> Path | None:
         target = WEB_ROOT / ("index.html" if path in {"", "/"} else path.lstrip("/"))
         try:
             target.resolve().relative_to(WEB_ROOT.resolve())
         except ValueError:
-            self.send_error(403)
-            return
-        if not target.is_file():
+            return None
+        return target if target.is_file() else None
+
+    def send_static(self, path: str, head_only: bool = False) -> None:
+        target = self.static_target(path)
+        if not target:
             self.send_error(404)
             return
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
@@ -135,47 +141,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type + ("; charset=utf-8" if content_type.startswith("text/") or content_type == "application/javascript" else ""))
         self.send_header("Content-Length", str(target.stat().st_size))
         self.end_headers()
-        with target.open("rb") as stream:
-            shutil.copyfileobj(stream, self.wfile)
+        if not head_only:
+            with target.open("rb") as stream:
+                shutil.copyfileobj(stream, self.wfile)
 
     def do_HEAD(self) -> None:
         parsed = parse.urlparse(self.path)
         if parsed.path == "/api/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_response(200 if RESULTS_PATH.is_file() else 503)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             return
-        target = WEB_ROOT / ("index.html" if parsed.path in {"", "/"} else parsed.path.lstrip("/"))
-        try:
-            target.resolve().relative_to(WEB_ROOT.resolve())
-        except ValueError:
-            self.send_error(403)
-            return
-        if not target.is_file():
-            self.send_error(404)
-            return
-        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        self.send_response(200)
-        self.send_header("Content-Type", content_type + ("; charset=utf-8" if content_type.startswith("text/") or content_type == "application/javascript" else ""))
-        self.send_header("Content-Length", str(target.stat().st_size))
-        self.end_headers()
+        self.send_static(parsed.path, head_only=True)
 
     def proxy_pdf(self, document_id: str) -> None:
-        source_row = next(
-            (
-                row for row in raw_credit_rows()
-                if public_document_id(str(row.get("document_id") or "")) == document_id and row.get("pdf_url")
-            ),
-            None,
-        )
-        if not source_row:
+        source_id = source_id_for_public(document_id)
+        if not source_id:
             self.send_error(404)
             return
-        headers = {}
-        if self.headers.get("Range"):
-            headers["Range"] = self.headers["Range"]
-        source_id = str(source_row.get("document_id") or "")
+        headers = {"Range": self.headers["Range"]} if self.headers.get("Range") else {}
         upstream = request.Request(f"{ORIGIN}/api/pdf/{parse.quote(source_id)}", headers=headers)
         try:
             with request.urlopen(upstream, timeout=30) as response:
@@ -194,46 +178,52 @@ class Handler(BaseHTTPRequestHandler):
         parsed = parse.urlparse(self.path)
         try:
             if parsed.path == "/api/health":
-                self.send_json({"ok": True, "scope": "credit_report_only"})
+                payload = load_results()
+                self.send_json({"ok": True, "scope": "credit_report_word_rules_only", "documents": payload.get("document_count", 0), "schema_version": payload.get("schema_version")})
                 return
             if parsed.path == "/api/dashboard":
-                self.send_json(dashboard_payload(credit_rows()))
+                self.send_json(dashboard_payload(documents()))
                 return
             if parsed.path == "/api/documents":
                 query = parse.parse_qs(parsed.query)
-                rows = credit_rows()
+                rows = documents()
                 search = (query.get("search") or [""])[0].strip().lower()
                 status = (query.get("status") or [""])[0]
                 if search:
-                    rows = [row for row in rows if search in (row["document_id"] + " " + " ".join(row["evidence"])).lower()]
-                if status in {"priority", "review", "routine"}:
-                    rows = [row for row in rows if row["status"] == status]
+                    rows = [row for row in rows if search in (row["document_id"] + " " + " ".join(item["title"] + item["message"] for item in row["findings"])).lower()]
+                if status in PUBLIC_STATUSES:
+                    rows = [row for row in rows if row["overall_status"] == status]
                 try:
                     limit = max(1, min(int((query.get("limit") or ["500"])[0]), 2000))
                 except ValueError:
                     limit = 500
-                self.send_json({"rows": rows[:limit], "count": len(rows), "scope": "credit_report_only"})
+                summary_rows = [{key: value for key, value in row.items() if key != "rule_results"} for row in rows[:limit]]
+                self.send_json({"rows": summary_rows, "count": len(rows), "scope": "credit_report_word_rules_only"})
                 return
             if parsed.path == "/api/document":
                 document_id = (parse.parse_qs(parsed.query).get("id") or [""])[0]
-                row = next((row for row in credit_rows() if row["document_id"] == document_id), None)
+                row = next((row for row in documents() if row["document_id"] == document_id), None)
                 self.send_json({"document": row} if row else {"error": "not_found"}, 200 if row else 404)
                 return
             if parsed.path.startswith("/api/pdf/"):
                 self.proxy_pdf(parse.unquote(parsed.path.rsplit("/", 1)[-1]))
                 return
             self.send_static(parsed.path)
-        except (error.URLError, TimeoutError, json.JSONDecodeError):
+        except FileNotFoundError:
+            self.send_json({"error": "credit_rule_results_missing"}, 503)
+        except (ValueError, json.JSONDecodeError):
+            self.send_json({"error": "credit_rule_results_invalid"}, 503)
+        except (error.URLError, TimeoutError):
             self.send_json({"error": "upstream_unavailable"}, 502)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Client-facing credit-report-only VeriDoc dashboard")
+    parser = argparse.ArgumentParser(description="Client-facing Word-rule credit-report dashboard")
     parser.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "3003")))
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"credit-report client listening on http://{args.host}:{args.port}", flush=True)
+    print(f"credit-report Word-rule client listening on http://{args.host}:{args.port}", flush=True)
     server.serve_forever()
 
 

@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,35 +13,48 @@ SPEC.loader.exec_module(server)
 
 
 class CreditClientServerTests(unittest.TestCase):
-    def test_sanitize_never_exposes_internal_label_or_path(self):
-        row = server.sanitize_row(
-            {
-                "document_id": "fake_001",
-                "doc_type": "credit_report",
-                "label": "fake",
-                "path": "/private/report.pdf",
-                "combined_risk_score": "42",
-                "combined_risk_reasons": "marker:explicit_forgery_text:training|text:credit_report_id_missing",
-                "pdf_url": "/api/pdf/fake_001",
-            }
-        )
-        self.assertEqual(row["status"], "priority")
-        self.assertNotIn("label", row)
-        self.assertNotIn("path", row)
-        self.assertNotIn("fake", row["document_id"].lower())
-        self.assertTrue(row["document_id"].startswith("CR-"))
-        self.assertNotIn("training", " ".join(row["evidence"]))
-        self.assertEqual(row["doc_type"], "credit_report")
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        server.RESULTS_PATH = Path(self.temp.name) / "results.json"
+        server._cache_payload = None
+        server._cache_mtime = -1.0
+        payload = {
+            "schema_version": "credit-word-rules-v1",
+            "generated_at": "2026-07-23T00:00:00+00:00",
+            "synthetic_excluded": True,
+            "document_count": 1,
+            "documents": [{
+                "source_id": "fake_001",
+                "source_format": "original_electronic",
+                "report_variant": "online_personal",
+                "overall_status": "fail",
+                "rule_counts": {"fail": 1, "possible": 0, "manual": 1, "pass": 2, "not_applicable": 3},
+                "rule_results": [
+                    {"rule_id": "G1", "title": "编号时间", "status": "fail", "message": "不一致", "word_level": "提示造假", "mode": "automatic"},
+                    {"rule_id": "G3", "title": "水印", "status": "manual", "message": "需模板", "word_level": "提示造假", "mode": "visual_template"},
+                ],
+                "has_pdf": True,
+            }],
+        }
+        server.RESULTS_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-    def test_dashboard_is_credit_only_summary(self):
-        rows = [
-            {"document_id": "a", "status": "priority", "evidence": ["PDF 文档属性或结构需要复核"]},
-            {"document_id": "b", "status": "routine", "evidence": []},
-        ]
-        payload = server.dashboard_payload(rows)
-        self.assertEqual(payload["scope"], "credit_report_only")
-        self.assertEqual(payload["total"], 2)
-        self.assertEqual(payload["status_counts"]["priority"], 1)
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_public_rows_hide_source_identity(self):
+        row = server.documents()[0]
+        self.assertTrue(row["document_id"].startswith("CR-"))
+        self.assertNotIn("fake", row["document_id"].lower())
+        self.assertNotIn("source_id", row)
+        self.assertNotIn("risk_score", row)
+        self.assertEqual(row["overall_status"], "fail")
+
+    def test_dashboard_uses_rule_statuses(self):
+        payload = server.dashboard_payload(server.documents())
+        self.assertEqual(payload["scope"], "credit_report_word_rules_only")
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["status_counts"]["fail"], 1)
+        self.assertNotIn("synthetic_excluded", payload)
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@
           </div>
           <aside class="hero-console">
             <div class="console-head"><div><span>SYSTEM SNAPSHOT</span><strong>征信核验服务</strong></div><b><i></i>运行中</b></div>
-            <div class="console-focus"><div><span>已纳入核验</span><strong id="hero-total">—</strong><small>仅统计征信报告</small></div><div class="console-ring"><span id="hero-priority">—</span><small>优先复核</small></div></div>
+            <div class="console-focus"><div><span>已纳入核验</span><strong id="hero-total">—</strong><small>当前征信专项报告</small></div><div class="console-ring"><span id="hero-exception">—</span><small>规则异常</small></div></div>
             <div class="pipeline"><span><i></i>材料读取</span><b></b><span><i></i>规则核验</span><b></b><span><i></i>结果归集</span></div>
             <div class="console-foot"><span>数据已与核验服务连接</span><time id="updated-at">等待刷新</time></div>
           </aside>
@@ -43,18 +43,18 @@
         <div class="overview-heading"><div><span>OVERVIEW</span><h2>征信报告核验概览</h2></div><p>点击指标卡进入对应报告队列</p></div>
         <section class="metrics" id="metrics"></section>
         <section class="grid two">
-          <article class="panel"><div class="panel-head"><div><h2>核验状态分布</h2><span>按当前报告核验结果归集</span></div></div><div id="risk-bars" class="bars loading">正在加载…</div></article>
-          <article class="panel"><div class="panel-head"><div><h2>重点复核项目</h2><span>从征信报告核验提示中归类</span></div></div><div id="reason-list" class="reason-list loading">正在加载…</div></article>
+          <article class="panel"><div class="panel-head"><div><h2>核验规则结论分布</h2><span>异常、可能异常、待人工与自动项通过分开展示</span></div></div><div id="risk-bars" class="bars loading">正在加载…</div></article>
+          <article class="panel"><div class="panel-head"><div><h2>主要规则偏离</h2><span>仅统计Word规则明确异常或“有造假可能”</span></div></div><div id="reason-list" class="reason-list loading">正在加载…</div></article>
         </section>
-        <section class="panel recent-panel"><div class="panel-head"><div><h2>优先复核队列</h2><span>展示当前风险提示较高的征信报告</span></div><button class="text-button" data-jump-view="documents">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>报告编号</th><th>核验状态</th><th>风险值</th><th>主要提示</th><th>操作</th></tr></thead><tbody id="priority-rows"></tbody></table></div></section>
+        <section class="panel recent-panel"><div class="panel-head"><div><h2>规则异常与可能异常</h2><span>每项结论均对应核验规则编号，不使用综合评分</span></div><button class="text-button" data-jump-view="documents">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>报告编号</th><th>总体结论</th><th>规则统计</th><th>主要规则结果</th><th>操作</th></tr></thead><tbody id="priority-rows"></tbody></table></div></section>
       </section>
 
       <section class="view" id="view-documents">
-        <section class="panel document-panel"><div class="panel-head stacked"><div><h2>征信报告核查</h2><span id="document-count">—</span></div><div class="filters"><input id="search-filter" type="search" placeholder="搜索报告编号或核验提示"/><select id="risk-filter"><option value="">全部状态</option><option value="priority">优先复核</option><option value="review">建议复核</option><option value="routine">常规核验</option></select></div></div><div class="table-wrap document-table"><table><thead><tr><th>报告编号</th><th>材料类型</th><th>核验状态</th><th>风险值</th><th>核验提示</th><th>原件</th><th>操作</th></tr></thead><tbody id="document-rows"></tbody></table></div></section>
+        <section class="panel document-panel"><div class="panel-head stacked"><div><h2>征信报告核查</h2><span id="document-count">—</span></div><div class="filters"><input id="search-filter" type="search" placeholder="搜索报告编号或规则结果"/><select id="risk-filter"><option value="">全部结论</option><option value="fail">规则异常</option><option value="possible">有造假可能</option><option value="manual">待人工核验</option><option value="pass">自动项通过</option></select></div></div><div class="table-wrap document-table"><table><thead><tr><th>报告编号</th><th>报告版本</th><th>总体结论</th><th>规则统计</th><th>主要规则结果</th><th>原件</th><th>操作</th></tr></thead><tbody id="document-rows"></tbody></table></div></section>
       </section>
 
       <section class="view" id="view-scope">
-        <section class="panel scope-intro"><p class="eyebrow">VERIFICATION SCOPE</p><h2>征信报告专项核验范围</h2><p>核验项目严格对应业务规则文档。不同报告版本可获取的信息不同，无法自动确认的项目进入人工复核。</p></section>
+        <section class="panel scope-intro"><p class="eyebrow">VERIFICATION SCOPE</p><h2>征信报告专项核验范围</h2><p>逐条对应《征信报告造假识别(1)》规则。系统只在证据完整时标记异常；需要结合原件或辅助资料确认的项目显示“待人工核验”。</p></section>
         <section class="scope-grid">
           <article class="scope-card"><span>01</span><div><h3>通用校验</h3><p>报告编号与报告时间、报告内日期、水印位置与完整性、字体字号及行间距一致性。</p></div></article>
           <article class="scope-card"><span>02</span><div><h3>原始 PDF 版</h3><p>创建与修改时间、PDF 制作者及版本、字体属性，以及报告时间与文件创建时间关系。</p></div></article>
@@ -62,7 +62,7 @@
           <article class="scope-card"><span>04</span><div><h3>人行打印版个人征信</h3><p>证件与出生日期、违约信息概要、还款记录、账户数及授信负债金额交叉核验。</p></div></article>
           <article class="scope-card wide"><span>05</span><div><h3>法人征信</h3><p>工商信息、企业名称、中征码、统一社会信用代码，以及负面信息、公共记录、关注类与不良类账户及余额的一致性核验。</p></div></article>
         </section>
-        <section class="panel boundary"><strong>结果说明</strong><p>系统输出用于提示核验异常和安排复核优先级，不替代人民银行征信中心、工商登记机关或其他权威渠道的最终核验结果。</p></section>
+        <section class="panel boundary"><strong>结果说明</strong><p>系统逐项呈现核验结果与待确认事项，不替代人民银行征信中心、工商登记机关或其他权威渠道的最终核验结果。</p></section>
       </section>
     </main>
 
